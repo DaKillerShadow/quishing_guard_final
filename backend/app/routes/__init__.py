@@ -1,11 +1,5 @@
-"""
-engine/__init__.py — Logic Layer Exports
-========================================
-Exposes core security engines to the rest of the application.
-"""
-
-from .scorer     import analyze_url
-from .resolver   import resolve
-from .reputation import is_allowlisted, is_blocklisted, seed_database
-
-# This ensures that when you do 'from ..engine.scorer import analyze_url', it works.
+# This file should only export your Blueprints
+from .auth import bp as auth_bp
+from .analyse import bp as analyse_bp
+from .report import bp as report_bp
+# DO NOT import scorer here!
