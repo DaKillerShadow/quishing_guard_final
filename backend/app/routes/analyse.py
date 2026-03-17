@@ -1,7 +1,7 @@
 """
 routes/analyse.py — Master API Endpoint
 ==========================================
-Coordinates Resolver, Reputation, and Scorer.
+Main analysis endpoint. Coordinates Resolver, Reputation, and Scorer.
 Synchronized with Flutter 'SecurityCheck' model fields.
 """
 from __future__ import annotations
@@ -10,17 +10,15 @@ from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, current_app
 
 from ..engine.resolver   import resolve
-from ..engine.scorer     import score
+from ..engine.scorer     import analyze_url
 from ..engine.reputation import is_allowlisted, is_blocklisted
 from ..utils.validators  import validate_url_payload
 from ..models.db_models  import ScanLog
 from ..database          import db
 from ..limiter           import limiter
-from ..logger            import get_logger
-
-# Blueprint initialized without prefix (prefix /api/v1 is set in app/__init__.py)
+    
 bp  = Blueprint("analyse", __name__)
-log = get_logger("analyse")
+# Prefix /api/v1 is handled in factory (__init__.py)
 
 @bp.route("/analyse", methods=["POST"])
 @limiter.limit("30 per minute")
@@ -49,23 +47,22 @@ def analyse():
         max_hops = current_app.config.get("MAX_REDIRECT_HOPS", 10)
         timeout  = current_app.config.get("RESOLVER_TIMEOUT", 5)
         
-        # Follow the chain safely
+        # Safely follow the redirect chain
         res = resolve(raw_url, max_hops=max_hops, timeout=timeout)
         resolved_url   = res.resolved_url
         redirect_chain = res.redirect_chain
         hop_count      = res.hop_count
 
-        # Re-check reputation for the final destination
+        # Re-check reputation for final destination
         if not allowlisted:
             allowlisted = is_allowlisted(resolved_url)
         if not blocklisted:
             blocklisted = is_blocklisted(resolved_url)
 
     # 4. Score heuristics (The "Brain")
-    result = score(
-        resolved_url   = resolved_url,
-        raw_url        = raw_url,
-        redirect_chain = redirect_chain,
+    # Updated to call 'analyze_url' and handle dictionary response
+    result_data = analyze_url(
+        url            = resolved_url,
         hop_count      = hop_count,
         allowlisted    = allowlisted,
         blocklisted    = blocklisted,
@@ -82,42 +79,30 @@ def analyse():
             id           = scan_id,
             raw_url      = raw_url,
             resolved_url = resolved_url,
-            risk_score   = result.risk_score,
-            risk_label   = result.risk_label,
-            top_threat   = result.top_threat,
+            risk_score   = result_data['risk_score'],
+            risk_label   = result_data['risk_label'],
+            top_threat   = "None" if allowlisted else "Heuristic Detection",
             hop_count    = hop_count,
             client_ip    = request.remote_addr,
         ))
         db.session.commit()
-    except Exception as exc:
+    except Exception:
         db.session.rollback()
-        log.error("Database Error: Failed to write scan log", extra={"exc": str(exc)})
 
     # 7. Final JSON Response (STRICTLY SYNCED WITH FLUTTER MODELS)
     return jsonify({
         "id":             scan_id,
-        "url":            raw_url,         # Used by Flutter model
-        "raw_url":        raw_url,         # Backup field
+        "url":            raw_url,         # Mapping for Flutter model
+        "raw_url":        raw_url,         
         "resolved_url":   resolved_url,
-        "risk_score":     result.risk_score,
-        "risk_label":     result.risk_label,
-        "top_threat":     result.top_threat,
+        "risk_score":     result_data['risk_score'],
+        "risk_label":     result_data['risk_label'],
+        "top_threat":     "None" if allowlisted else "Heuristic Detection",
         "redirect_chain": redirect_chain,
         "hop_count":      hop_count,
         "is_allowlisted": allowlisted,
         "is_blocklisted": blocklisted,
-        "overall_assessment": f"The provided URL appears to be {result.risk_label.upper()}.",
+        "overall_assessment": result_data['overall_assessment'],
         "analysed_at":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "checks": [
-            {
-                "name":      c.name,
-                "label":     c.label,
-                "status":    "UNSAFE" if c.triggered else "SAFE", # Flutter status logic
-                "triggered": c.triggered,
-                "score":     c.score,
-                "message":   c.description,                       # Mapped for UI display
-                "metric":    c.detail or "",                      # Mapped for technical info
-            }
-            for c in result.checks
-        ],
+        "checks":         result_data['checks'] # Keys already mapped to message/metric
     }), 200
