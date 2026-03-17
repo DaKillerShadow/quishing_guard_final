@@ -33,11 +33,11 @@ def create_app(test_config: dict | None = None) -> Flask:
     _base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     app.config.from_mapping(
         SECRET_KEY=os.environ.get("SECRET_KEY", "dev-key-change-in-prod"),
-        # Standardize PostgreSQL prefix for Render
-        SQLALCHEMY_DATABASE_URI=os.environ.get(
-            "DATABASE_URL",
-            f"sqlite:///{os.path.join(_base_dir, 'quishing_guard.db')}",
-        ).replace("postgres://", "postgresql://", 1),
+        
+        # ── HARDCODED SQLITE FOR GRADUATION PROJECT ──
+        # This completely ignores Render's broken DATABASE_URL variable
+        SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(_base_dir, 'quishing_guard.db')}",
+        
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         # Image Security: 16MB Limit for OpenCV QR Scanning
         MAX_CONTENT_LENGTH=16 * 1024 * 1024, 
