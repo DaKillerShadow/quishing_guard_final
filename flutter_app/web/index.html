@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    FIX 1: Replaced "$FLUTTER_BASE_HREF" placeholder with "/" (the root path).
+    The original placeholder is substituted by the Flutter build tool during
+    "flutter build web --base-href /". Keeping the literal string means the
+    browser cannot resolve any assets, producing a white screen.
+
+    This project is deployed to GitHub Pages under the /quishing-guard/ subpath.
+    The base href MUST match or Flutter routing breaks (404 on all routes, blank screens).
+    Built with: flutter build web --release --base-href /quishing-guard/
+  -->
+  <base href="/quishing-guard/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <!-- FIX 2: Updated description from default Flutter template text -->
+  <meta name="description" content="Quishing Guard — QR Code Phishing Defence. Scan QR codes safely with real-time heuristic analysis.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <!-- FIX 3: Updated app title from 'quishing_guard' to 'Quishing Guard' -->
+  <meta name="apple-mobile-web-app-title" content="Quishing Guard">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <!-- FIX 4: Updated page title from 'quishing_guard' to 'Quishing Guard' -->
+  <title>Quishing Guard</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <!--
+    NOTE: flutter_bootstrap.js is a GENERATED file — it does NOT exist in the
+    source tree. It is only created when you run:
+
+        flutter build web --base-href /
+
+    The built output appears in: build/web/
+
+    Serve the build/web/ folder (not the web/ source folder).
+    To test during development use:   flutter run -d chrome
+    To deploy: copy the entire build/web/ folder to your web server / Netlify.
+  -->
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

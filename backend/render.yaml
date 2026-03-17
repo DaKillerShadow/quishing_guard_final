@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: quishing-guard-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    # Bug fixes:
+    #   1. Use create_app() factory so Flask-Limiter, SQLAlchemy and blueprints
+    #      are all initialised before Gunicorn forks workers.
+    #   2. Bind to $PORT — Render injects this; hardcoding 5000 causes a health-
+    #      check failure and the service is killed as unhealthy.
+    #   3. Add worker/timeout flags that were in the Dockerfile but missing here.
+    startCommand: gunicorn -w 2 --timeout 60 -b 0.0.0.0:$PORT "app:create_app()"
+    envVars:
+      # Render auto-populates DATABASE_URL from the linked database below
+      - key: DATABASE_URL
+        fromDatabase:
+          name: quishing-guard-db
+          property: connectionString
+      # Render generates a cryptographically random value on first deploy
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: admin
+      # Set this in the Render dashboard — never commit real passwords to git
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: JWT_EXPIRY_HOURS
+        value: "24"
+      - key: MAX_REDIRECT_HOPS
+        value: "10"
+      - key: RESOLVER_TIMEOUT
+        value: "5"
+      - key: CORS_ORIGINS
+        value: "https://dakillershadow.github.io"  # GitHub Pages frontend URL
+      - key: LOG_LEVEL
+        value: INFO
+
+# Free-tier PostgreSQL — data persists across deploys unlike SQLite on
+# Render's ephemeral filesystem (which resets on every restart/redeploy)
+databases:
+  - name: quishing-guard-db
+    plan: free

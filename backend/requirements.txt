@@ -1,0 +1,12 @@
+Flask>=3.0.0
+Flask-Cors>=4.0.0
+idna>=3.6
+tldextract>=5.1.0          # CRITICAL: For accurate eTLD+1 parsing
+Flask-SQLAlchemy>=3.1.0
+psycopg2-binary>=2.9
+PyJWT>=2.8.0
+Flask-Limiter>=3.7.0
+opencv-python-headless>=4.9.0
+numpy>=1.26.0
+gunicorn>=21.2
+pytest>=8.0

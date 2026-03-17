@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#020912">
+  <title>Offline — Quishing Guard</title>
+  <style>
+    :root { --void:#020912; --panel:#0b1423; --rim:#1d2e46; --arc:#00e5ff;
+            --muted:#8a99b0; --text:#d8e6f8; }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body { background:var(--void);color:var(--text);font-family:'IBM Plex Mono',monospace;
+           height:100dvh;display:flex;flex-direction:column;align-items:center;
+           justify-content:center;padding:24px;text-align:center;gap:16px; }
+    .icon { font-size:3rem;margin-bottom:8px; }
+    h1   { font-family:system-ui,sans-serif;font-size:1.4rem;font-weight:800;color:var(--arc); }
+    p    { font-size:.82rem;color:var(--muted);line-height:1.7;max-width:300px; }
+    .btn { margin-top:12px;padding:10px 24px;border-radius:8px;border:1px solid rgba(0,229,255,.3);
+           background:rgba(0,229,255,.08);color:var(--arc);font-family:inherit;
+           font-size:.8rem;cursor:pointer;letter-spacing:.04em;text-transform:uppercase; }
+    .btn:hover { background:rgba(0,229,255,.16); }
+  </style>
+</head>
+<body>
+  <div class="icon">📡</div>
+  <h1>You're Offline</h1>
+  <p>Quishing Guard needs an internet connection to analyse QR code destinations safely. Please reconnect and try again.</p>
+  <p>Your scan history is still available locally.</p>
+  <button class="btn" onclick="location.reload()">Retry Connection</button>
+</body>
+</html>

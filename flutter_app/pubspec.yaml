@@ -1,0 +1,65 @@
+name: quishing_guard
+description: >
+  Quishing Guard — QR Code Phishing Defence.
+  Scans QR codes, resolves URLs through a secure Flask backend,
+  scores risk using heuristic + Shannon Entropy analysis, and
+  delivers micro-learning moments before any navigation occurs.
+# FIX: was 1.0.0+1 while app_constants.dart said '1.0.0' and
+# settings_screen.dart hardcoded '2.0.0'. Aligned to 2.0.0+1.
+version: 2.0.0+1
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── QR Scanning ──────────────────────────────────────────────────────
+  mobile_scanner: ^5.2.3
+  image_picker: ^1.1.2
+
+  # ── State Management ─────────────────────────────────────────────────
+  flutter_riverpod: ^2.5.1
+
+  # ── Navigation ───────────────────────────────────────────────────────
+  go_router: ^14.2.7
+
+  # ── Networking ───────────────────────────────────────────────────────
+  dio: ^5.5.0+1
+  connectivity_plus: ^6.0.3
+
+  # ── Local Storage ────────────────────────────────────────────────────
+  shared_preferences: ^2.3.2
+
+  # ── UI ────────────────────────────────────────────────────────────────
+  url_launcher: ^6.3.0
+  share_plus: ^9.0.0
+  permission_handler: ^11.3.1
+
+  # ── Utilities ─────────────────────────────────────────────────────────
+  uuid: ^4.4.2
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: "^0.13.1"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    # NOTE: assets/icon/icon.png must physically exist before running
+    # 'dart run flutter_launcher_icons' or the build will fail.
+    - assets/icon/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: false
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#1A1B26"
+  adaptive_icon_foreground: "assets/icon/icon.png"
