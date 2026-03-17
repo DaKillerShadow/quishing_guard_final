@@ -23,9 +23,11 @@ class SecurityCheck {
 
   factory SecurityCheck.fromJson(Map<String, dynamic> j) => SecurityCheck(
         name: j['name'] as String? ?? '',
-        label: j['label'] as String? ?? 'Unknown Check',
+        // If Python doesn't send 'label', use 'name' as the fallback
+        label: j['label'] as String? ?? j['name'] as String? ?? 'Unknown Check',
         status: j['status'] as String? ?? 'SAFE',
-        triggered: j['triggered'] as bool? ?? false,
+        // If 'status' is not SAFE, consider it triggered
+        triggered: j['triggered'] as bool? ?? (j['status'] != 'SAFE'),
         score: (j['score'] as num?)?.toInt() ?? 0,
         message: j['message'] as String? ?? j['description'] ?? '',
         metric: j['metric'] as String? ?? '',
