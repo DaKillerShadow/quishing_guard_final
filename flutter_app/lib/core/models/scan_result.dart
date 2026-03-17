@@ -22,15 +22,16 @@ class SecurityCheck {
   final String metric; // Technical data (e.g., 'Entropy: 1.2 bits')
 
   factory SecurityCheck.fromJson(Map<String, dynamic> j) => SecurityCheck(
-        name: j['name'] as String? ?? '',
+        name: j['name']?.toString() ?? '',
         // If Python doesn't send 'label', use 'name' as the fallback
-        label: j['label'] as String? ?? j['name'] as String? ?? 'Unknown Check',
-        status: j['status'] as String? ?? 'SAFE',
+        label:
+            j['label']?.toString() ?? j['name']?.toString() ?? 'Unknown Check',
+        status: j['status']?.toString() ?? 'SAFE',
         // If 'status' is not SAFE, consider it triggered
         triggered: j['triggered'] as bool? ?? (j['status'] != 'SAFE'),
         score: (j['score'] as num?)?.toInt() ?? 0,
-        message: j['message'] as String? ?? j['description'] ?? '',
-        metric: j['metric'] as String? ?? '',
+        message: j['message']?.toString() ?? j['description']?.toString() ?? '',
+        metric: j['metric']?.toString() ?? '',
       );
 
   Map<String, dynamic> toJson() => {
@@ -44,7 +45,7 @@ class SecurityCheck {
       };
 }
 
-// ── ScanResult (Master Merged Version) ───────────────────────────────────────
+// ── ScanResult (Master Merged & Debugged Version) ──────────────────────────────
 
 class ScanResult {
   ScanResult({
@@ -94,29 +95,53 @@ class ScanResult {
     }
   }
 
-  factory ScanResult.fromJson(Map<String, dynamic> j) => ScanResult(
-        id: j['id'] as String? ?? const Uuid().v4(),
-        url: j['url'] as String? ?? j['raw_url'] as String? ?? '',
-        resolvedUrl: j['resolved_url'] as String? ?? '',
-        riskScore: (j['risk_score'] as num?)?.toInt() ?? 0,
-        riskLabel: j['risk_label'] as String? ?? 'safe',
-        topThreat: j['top_threat'] as String?,
-        isAllowlisted: j['is_allowlisted'] as bool? ?? false,
-        isBlocklisted: j['is_blocklisted'] as bool? ?? false,
-        hopCount: (j['hop_count'] as num?)?.toInt() ?? 0,
-        overallAssessment: j['overall_assessment'] ?? '',
-        scannedAt: j['analysed_at'] != null
-            ? DateTime.tryParse(j['analysed_at'] as String) ?? DateTime.now()
-            : DateTime.now(),
-        redirectChain: (j['redirect_chain'] as List<dynamic>?)
-                ?.map((e) => e.toString())
-                .toList() ??
-            [],
-        checks: (j['checks'] as List<dynamic>?)
-                ?.map((e) => SecurityCheck.fromJson(e as Map<String, dynamic>))
-                .toList() ??
-            [],
-      );
+  factory ScanResult.fromJson(Map<String, dynamic> j) {
+    // 1. Get raw checks list
+    final rawChecks = j['checks'];
+    List<SecurityCheck> parsedChecks = [];
+
+    // 2. Safe parsing logic: Prevents "String is not a subtype of Map" error
+    if (rawChecks is List) {
+      for (var item in rawChecks) {
+        if (item is Map<String, dynamic>) {
+          parsedChecks.add(SecurityCheck.fromJson(item));
+        } else if (item is String) {
+          // Gracefully handles cases where backend sends a raw string list
+          parsedChecks.add(SecurityCheck(
+            name: 'info',
+            label: 'Analysis Detail',
+            status: 'INFO',
+            triggered: false,
+            score: 0,
+            message: item,
+            metric: '',
+          ));
+        }
+      }
+    }
+
+    return ScanResult(
+      id: j['id']?.toString() ?? const Uuid().v4(),
+      url: j['url']?.toString() ?? j['raw_url']?.toString() ?? '',
+      resolvedUrl: j['resolved_url']?.toString() ?? '',
+      riskScore: (j['risk_score'] as num?)?.toInt() ?? 0,
+      riskLabel: j['risk_label']?.toString() ?? 'safe',
+      topThreat: j['top_threat']?.toString(),
+      isAllowlisted: j['is_allowlisted'] == true,
+      isBlocklisted: j['is_blocklisted'] == true,
+      hopCount: (j['hop_count'] as num?)?.toInt() ?? 0,
+      overallAssessment:
+          j['overall_assessment']?.toString() ?? '', // Forced String conversion
+      scannedAt: j['analysed_at'] != null
+          ? DateTime.tryParse(j['analysed_at'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      redirectChain: (j['redirect_chain'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      checks: parsedChecks,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
