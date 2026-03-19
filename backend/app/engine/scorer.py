@@ -71,7 +71,7 @@ def _parse_domain_parts(url: str):
     return ext, clean_domain
 
 def trace_redirects(start_url: str) -> dict:
-    """Follows URL redirects, checks for nesting, and hunts for HTML meta-refreshes."""
+    """Follows URL redirects, mimics a mobile device, and hunts for HTML meta-refreshes."""
     tracker_results = {
         "hop_count": 0,
         "shortener_count": 0,
@@ -80,33 +80,59 @@ def trace_redirects(start_url: str) -> dict:
         "redirect_chain": []
     }
     
+    # ── THE SPOOF: Mimic a modern iPhone 17 Pro Max ──────────────────────────
+    # This bypasses "cloaking" scripts that hide phishing from desktop bots.
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) '
+            'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
+        ),
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    }
+    
     try:
-        # Use a custom User-Agent to bypass basic bot-blocking
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        response = requests.get(start_url, headers=headers, allow_redirects=True, timeout=7)
+        # Increased timeout to 10s to give slow phishing servers time to respond
+        # allow_redirects=True automatically follows 301/302 HTTP status codes
+        response = requests.get(
+            start_url, 
+            headers=headers, 
+            allow_redirects=True, 
+            timeout=10,
+            verify=True # Ensure SSL is valid
+        )
         
         tracker_results["hop_count"] = len(response.history)
         tracker_results["final_url"] = response.url
         
-        # Build the chain list and check for nested shorteners
+        # ── PROCESS REDIRECT CHAIN ───────────────────────────────────────────
         for resp in response.history:
             tracker_results["redirect_chain"].append(resp.url)
+            
+            # Accurate eTLD+1 extraction (e.g., bit.ly)
             ext = tldextract.extract(resp.url)
             domain = f"{ext.domain}.{ext.suffix}"
+            
             if domain in KNOWN_SHORTENERS:
                 tracker_results["shortener_count"] += 1
                 
-        # Scrape the final HTML to see if they hid a meta-refresh redirect
+        # ── META-REFRESH SCRAPE ──────────────────────────────────────────────
+        # Checks if the page says <meta http-equiv="refresh" content="0;url=...">
         soup = BeautifulSoup(response.text, 'html.parser')
         meta_refresh = soup.find('meta', attrs={'http-equiv': re.compile(r'refresh', re.I)})
+        
         if meta_refresh:
             tracker_results["meta_refresh_found"] = True
+            # Optional: Extract the URL from content="0;URL='https://...'"
+            content = meta_refresh.get('content', '')
+            if 'url=' in content.lower():
+                tracker_results["final_url"] = content.lower().split('url=')[1].strip(' "\'')
             
     except requests.exceptions.RequestException:
-        pass # If connection fails, we just analyze the original start_url
+        # If the link is dead or takes > 10s, we fallback to the original URL
+        pass 
         
     return tracker_results
-
 
 # ── 4. Main Analytical Engine ─────────────────────────────────────────────────
 
