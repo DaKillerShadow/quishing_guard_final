@@ -12,8 +12,10 @@ class AppConstants {
   static const String defaultApiBaseUrl =
       'https://quishing-guard-backend.onrender.com';
 
-  static const Duration connectTimeout = Duration(seconds: 10);
-  static const Duration receiveTimeout = Duration(seconds: 30);
+  // INCREASED: Giving Render 60 seconds to wake up from a "Cold Start"
+  // to prevent DioException [receive timeout] errors.
+  static const Duration connectTimeout = Duration(seconds: 60);
+  static const Duration receiveTimeout = Duration(seconds: 60);
 
   static const String historyPrefKey = 'scan_history_v1';
   static const int maxHistoryItems = 500;

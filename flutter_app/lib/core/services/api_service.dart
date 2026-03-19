@@ -1,4 +1,3 @@
-// lib/core/services/api_service.dart
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +15,7 @@ final apiServiceProvider = Provider<ApiService>((ref) {
       'API_BASE_URL',
       defaultValue: AppConstants.defaultApiBaseUrl,
     ),
+    // Aligned to the 60s durations now defined in AppConstants
     connectTimeout: AppConstants.connectTimeout,
     receiveTimeout: AppConstants.receiveTimeout,
     headers: {
@@ -44,8 +44,6 @@ class ApiService {
   /// Analyse a QR-decoded URL payload via the Flask heuristic engine.
   Future<ScanResult> analyseUrl(String rawPayload) async {
     try {
-      // FIX: Removed hardcoded 'X-API-Key' header.
-      // Public endpoints are protected by rate limiting; admin endpoints use JWT.
       final response = await _dio.post('/api/v1/analyse', data: {
         'url': rawPayload,
         'client_scan_id': const Uuid().v4(),
@@ -57,7 +55,6 @@ class ApiService {
   }
 
   /// Upload an image for server-side OpenCV QR decoding.
-  /// Returns a list of decoded payload strings found in the image.
   Future<List<String>> scanImage(List<int> imageBytes, String filename) async {
     try {
       final formData = FormData.fromMap({
@@ -113,7 +110,7 @@ class ApiService {
     }
   }
 
-  // ── Admin Endpoints (Requires JWT stored in prefs) ─────────────────────────
+  // ── Admin Endpoints ────────────────────────────────────────────────────────
 
   Future<String?> adminLogin(String username, String password) async {
     try {
@@ -154,12 +151,10 @@ class ApiService {
     }
   }
 
-  /// Fetches the recent scan history for the admin audit trail.
   Future<List<Map<String, dynamic>>> adminScanLogs() async {
     try {
       final response = await _dio.get('/api/v1/admin/logs');
       final rawList = response.data['logs'] as List<dynamic>? ?? [];
-      // Cast each item to Map<String, dynamic> safely
       return rawList
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
@@ -169,21 +164,12 @@ class ApiService {
     }
   }
 
-  /// Fetches URLs reported by users that are pending admin approval.
   Future<List<Map<String, dynamic>>> adminPendingReports() async {
     try {
-      // Note: The second snippet used '/api/v1/admin/blocklist/pending',
-      // while the first used '/api/v1/admin/reports/pending'.
-      // Ensure this matches your Python backend route!
       final r = await _dio.get('/api/v1/admin/blocklist/pending');
-
-      // Safely handle response regardless of whether Dio returns a parsed
-      // Map or a raw String.
       final Map<String, dynamic> body =
           r.data is Map ? Map<String, dynamic>.from(r.data as Map) : {};
       final list = (body['pending'] as List<dynamic>?) ?? [];
-
-      // Use whereType<Map> + Map.from() to safely convert each entry
       return list
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
@@ -209,8 +195,6 @@ class ApiService {
     }
   }
 
-  // ── Base URL update ───────────────────────────────────────────────────────
-
   void updateBaseUrl(String url) {
     _dio.options.baseUrl = url.trimRight().replaceAll(RegExp(r'/+$'), '');
   }
@@ -218,8 +202,6 @@ class ApiService {
   void _setAuthHeader(String token) {
     _dio.options.headers['Authorization'] = 'Bearer $token';
   }
-
-  // ── Error mapping ─────────────────────────────────────────────────────────
 
   ApiException _map(DioException e) => switch (e.type) {
         DioExceptionType.connectionTimeout ||
