@@ -111,12 +111,13 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .routes.admin   import bp as admin_bp
     from .routes.scan_image import bp as scan_image_bp
 
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(analyse_bp)
-    app.register_blueprint(report_bp)
-    app.register_blueprint(health_bp)
-    app.register_blueprint(admin_bp)
-    app.register_blueprint(scan_image_bp)
+    # FIXED: Added the /api/v1 prefix to correctly map the endpoints
+    app.register_blueprint(auth_bp, url_prefix='/api/v1/auth')
+    app.register_blueprint(analyse_bp, url_prefix='/api/v1')
+    app.register_blueprint(report_bp, url_prefix='/api/v1')
+    app.register_blueprint(health_bp, url_prefix='/api/v1')
+    app.register_blueprint(admin_bp, url_prefix='/api/v1/admin')
+    app.register_blueprint(scan_image_bp, url_prefix='/api/v1')
 
     log.info("Quishing Guard app created")
     return app

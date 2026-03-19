@@ -20,7 +20,8 @@ from ..limiter           import limiter
 bp  = Blueprint("analyse", __name__)
 # Prefix /api/v1 is handled in factory (__init__.py)
 
-@bp.route("/analyse", methods=["POST"])
+# FIXED: Reverted to /analyse and explicitly allowed OPTIONS for CORS
+@bp.route("/analyse", methods=["POST", "OPTIONS"])
 @limiter.limit("30 per minute")
 def analyse():
     # 1. Parse & validate inbound request
@@ -61,13 +62,9 @@ def analyse():
 
     # 4. Score heuristics (The "Brain")
     # Updated to call 'analyze_url' and handle dictionary response
-    result_data = analyze_url(
-        url            = resolved_url,
-        hop_count      = hop_count,
-        allowlisted    = allowlisted,
-        blocklisted    = blocklisted,
-    )
-
+   # 4. Score heuristics (The "Brain")
+    # Call analyze_url with ONLY the url argument
+    result_data = analyze_url(url=resolved_url)
     # 5. Generate unique Scan ID
     scan_id = hashlib.sha256(
         f"{raw_url}{datetime.now(timezone.utc).isoformat()}".encode()
