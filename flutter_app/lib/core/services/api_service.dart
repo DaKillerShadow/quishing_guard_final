@@ -102,7 +102,8 @@ class ApiService {
     try {
       final r = await _dio.get(
         '/api/v1/health',
-        options: Options(receiveTimeout: const Duration(seconds: 5)),
+        // Let it use the global AppConstants.receiveTimeout (60s)
+        options: Options(receiveTimeout: AppConstants.receiveTimeout),
       );
       return r.statusCode == 200;
     } catch (_) {

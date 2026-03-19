@@ -62,7 +62,6 @@ class _State extends ConsumerState<SettingsScreen> {
     if (value is String) await p.setString(key, value);
   }
 
-  // ── THE MERGED ADMIN LOGIN WITH MOUNTED CHECKS ───────────────────────────
   Future<void> _adminLogin() async {
     setState(() => _loggingIn = true);
 
@@ -71,8 +70,6 @@ class _State extends ConsumerState<SettingsScreen> {
           .read(apiServiceProvider)
           .adminLogin(_userCtrl.text.trim(), _passCtrl.text.trim());
 
-      // ALWAYS check this after an 'await' before calling setState or Navigator
-      // This is critical for slow Render cold-starts!
       if (!mounted) return;
 
       if (token != null) {
@@ -87,7 +84,6 @@ class _State extends ConsumerState<SettingsScreen> {
         setState(() => _loggingIn = false);
       }
     } catch (e) {
-      // Check again in catch block to prevent crash on failed long requests
       if (!mounted) return;
 
       setState(() => _loggingIn = false);
@@ -175,7 +171,8 @@ class _State extends ConsumerState<SettingsScreen> {
               title: 'Open Admin Dashboard',
               subtitle: 'Review pending domain reports',
               trailing: IconButton(
-                icon: const Icon(Icons.open_in_new_new_rounded, size: 16),
+                // FIXED: Removed the extra typo and double comma here
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
                 color: AppColors.arc,
                 onPressed: () => context.push('/admin'),
               ),

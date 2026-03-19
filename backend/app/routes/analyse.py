@@ -21,7 +21,7 @@ bp  = Blueprint("analyse", __name__)
 # Prefix /api/v1 is handled in factory (__init__.py)
 
 # FIXED: Reverted to /analyse and explicitly allowed OPTIONS for CORS
-@bp.route("/analyse", methods=["POST", "OPTIONS"])
+@bp.route("/analyse", methods=["POST"])
 @limiter.limit("30 per minute")
 def analyse():
     # 1. Parse & validate inbound request
