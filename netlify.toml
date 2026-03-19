@@ -1,0 +1,11 @@
+# Netlify configuration for Flutter web SPA
+# The [[redirects]] rule ensures all routes serve index.html
+# (Flutter handles routing client-side — without this, direct URL access gives 404)
+
+[build]
+  publish = "build/web"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

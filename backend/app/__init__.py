@@ -1,12 +1,16 @@
 """
-app/__init__.py — Master Integrated Flask Application Factory
-==============================================================
-Final production version for Quishing Guard v2.0.0 (2026).
+app/__init__.py — Flask Application Factory
+=============================================
+Wires together:
+  - SQLAlchemy  (database)
+  - Flask-Limiter (rate limiting)
+  - Structured logging
+  - JWT config for admin auth
+  - All route blueprints
 """
 from __future__ import annotations
 import os
-from datetime import datetime, timezone
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 
 from flask_cors import CORS
 from .database import db
@@ -15,90 +19,104 @@ from .logger   import get_logger
 
 log = get_logger("factory")
 
+
 def create_app(test_config: dict | None = None) -> Flask:
     app = Flask(__name__, instance_relative_config=True)
 
-    # ── 1. Root Route for Health & Deployment Info ────────────────────────
-    @app.route('/')
-    def index():
-        return jsonify({
-            "project": "Quishing Guard API",
-            "version": "2.0.0",
-            "status": "operational",
-            "author": "Mohamed Abdelfattah",
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }), 200
-
-    # ── 2. Configuration & Security ───────────────────────────────────────
+    # ── Configuration ──────────────────────────────────────────────────────
     _base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     app.config.from_mapping(
-        SECRET_KEY=os.environ.get("SECRET_KEY", "dev-key-change-in-prod"),
-        
-        # ── HARDCODED SQLITE FOR GRADUATION PROJECT ──
-        # This completely ignores Render's broken DATABASE_URL variable
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(_base_dir, 'quishing_guard.db')}",
-        
-        SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        # Image Security: 16MB Limit for OpenCV QR Scanning
-        MAX_CONTENT_LENGTH=16 * 1024 * 1024, 
-        CORS_ORIGINS=os.environ.get("CORS_ORIGINS", "*"),
+        # Core
+        SECRET_KEY         = os.environ.get("SECRET_KEY", "dev-change-in-production"),
+        # Database — SQLite default, set DATABASE_URL for PostgreSQL
+        # Render provides DATABASE_URL as "postgres://" but SQLAlchemy requires
+        # "postgresql://" — silently replacing this prefix fixes the connection.
+        SQLALCHEMY_DATABASE_URI = os.environ.get(
+            "DATABASE_URL",
+            f"sqlite:///{os.path.join(_base_dir, 'quishing_guard.db')}",
+        ).replace("postgres://", "postgresql://", 1),
+        SQLALCHEMY_TRACK_MODIFICATIONS = False,
+        # Analysis engine
+        MAX_REDIRECT_HOPS  = int(os.environ.get("MAX_REDIRECT_HOPS", 10)),
+        RESOLVER_TIMEOUT   = int(os.environ.get("RESOLVER_TIMEOUT", 5)),
+        ENTROPY_THRESHOLD  = float(os.environ.get("ENTROPY_THRESHOLD", 3.5)),
+        CORS_ORIGINS       = os.environ.get("CORS_ORIGINS", "*"),
+        # Admin auth
+        ADMIN_USERNAME     = os.environ.get("ADMIN_USERNAME", "admin"),
+        ADMIN_PASSWORD     = os.environ.get("ADMIN_PASSWORD", "change-me"),
+        JWT_EXPIRY_HOURS   = int(os.environ.get("JWT_EXPIRY_HOURS", 24)),
     )
 
     if test_config:
         app.config.update(test_config)
 
-    # ── 3. Extensions & Request Logging ───────────────────────────────────
+    # ── Initialise extensions ──────────────────────────────────────────────
     db.init_app(app)
     limiter.init_app(app)
-    CORS(app, origins=app.config["CORS_ORIGINS"], supports_credentials=True)
 
-    @app.before_request
-    def log_request_info():
-        # Audit Trail: Logs method, path, and remote IP
-        log.info(f"Inbound: {request.method} {request.path} from {request.remote_addr}")
-
-    # ── 4. Database Setup & Seeding ───────────────────────────────────────
+    # ── Create tables + seed DB ───────────────────────────────────────────
     with app.app_context():
-        # Import models to register them with SQLAlchemy metadata
+        # Models must be imported before db.create_all() so SQLAlchemy
+        # has registered the table definitions. Without this import the
+        # metadata is empty and create_all() produces a blank database,
+        # causing seed_database() to fail with "no such table".
         from .models.db_models import BlocklistEntry, AllowlistEntry, ScanLog  # noqa: F401
         db.create_all()
-        # Seed the built-in reputation lists (apple.com, etc.)
         from .engine.reputation import seed_database
         seed_database()
-        log.info("Database synchronized and seeded.")
+        log.info("Database ready")
 
-    # ── 5. Standardized JSON Error Handlers ───────────────────────────────
+    # ── Rate-limit error handler (returns JSON not HTML) ──────────────────
     @app.errorhandler(429)
     def rate_limit_exceeded(e):
-        return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
+        return jsonify({
+            "error": "Too many requests — please slow down.",
+            "retry_after": str(e.description),
+        }), 429
 
-    @app.errorhandler(413)
-    def request_entity_too_large(e):
-        # Specifically handles large images for the OpenCV scan-image route
-        return jsonify({"error": "Image file too large (Max 16MB allowed)."}), 413
+    # ── CORS ──────────────────────────────────────────────────────────────
+    # Flask-Cors handles preflight OPTIONS requests automatically.
+    # Without this, browsers block cross-origin requests from the GitHub Pages
+    # frontend before they even reach the API — the browser sends a preflight
+    # OPTIONS request first, and without Flask-Cors responding correctly to it,
+    # the actual POST/GET never fires and the app is completely broken.
+    #
+    # CORS_ORIGINS on Render must be set to the exact GitHub Pages URL:
+    #   https://dakillershadow.github.io
+    CORS(
+        app,
+        # CORS_ORIGINS env var accepts comma-separated list of domains
+        # e.g. "https://dakillershadow.github.io,https://myapp.netlify.app"
+        origins=[o.strip() for o in app.config["CORS_ORIGINS"].split(",")]
+                if app.config["CORS_ORIGINS"] != "*"
+                else "*",
+        supports_credentials=True,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "OPTIONS", "DELETE"],
+    )
 
-    # ── 6. Security Headers ───────────────────────────────────────────────
+    # ── Security headers ───────────────────────────────────────────────────
     @app.after_request
     def security_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Frame-Options"]        = "DENY"
+        response.headers["Referrer-Policy"]        = "no-referrer"
         return response
 
-    # ── 7. Blueprint Registration with v1 Prefixes ────────────────────────
-    from .routes.auth       import bp as auth_bp
-    from .routes.analyse    import bp as analyse_bp
-    from .routes.report     import bp as report_bp
-    from .routes.health     import bp as health_bp
-    from .routes.admin      import bp as admin_bp
+    # ── Register blueprints ────────────────────────────────────────────────
+    from .routes.auth    import bp as auth_bp
+    from .routes.analyse import bp as analyse_bp
+    from .routes.report  import bp as report_bp
+    from .routes.health  import bp as health_bp
+    from .routes.admin   import bp as admin_bp
     from .routes.scan_image import bp as scan_image_bp
 
-    app.register_blueprint(auth_bp,       url_prefix='/api/v1/auth')
-    app.register_blueprint(analyse_bp,    url_prefix='/api/v1')
-    app.register_blueprint(report_bp,     url_prefix='/api/v1')
-    app.register_blueprint(health_bp,     url_prefix='/api/v1')
-    app.register_blueprint(admin_bp,      url_prefix='/api/v1/admin')
-    app.register_blueprint(scan_image_bp, url_prefix='/api/v1')
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(analyse_bp)
+    app.register_blueprint(report_bp)
+    app.register_blueprint(health_bp)
+    app.register_blueprint(admin_bp)
+    app.register_blueprint(scan_image_bp)
 
-    log.info("Quishing Guard system fully initialized.")
+    log.info("Quishing Guard app created")
     return app

@@ -18,17 +18,17 @@ class SecurityErrorWidget extends StatelessWidget {
       return 'Request Timed Out';
     }
     if (exception.statusCode >= 500) {
-      return 'Server Error';
+      return 'Backend Offline'; // Changed for more "Cyber" feel
     }
     if (exception.type == ApiErrorType.network) {
-      return 'Network Error';
+      return 'Network Link Down';
     }
-    return 'Analysis Failed';
+    return 'Analysis Interrupted';
   }
 
   String get _message {
     if (exception.statusCode >= 500) {
-      return 'The server encountered an internal error and could not complete your request. Please try again later.';
+      return 'The security server encountered an internal error. Analysis could not be finalized. Please try again.';
     }
     return exception.message;
   }
@@ -42,45 +42,85 @@ class SecurityErrorWidget extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.panel,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.ember.withOpacity(0.5)),
+          // Using modern withValues for consistency
+          border: Border.all(color: AppColors.ember.withValues(alpha: 0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.ember.withValues(alpha: 0.05),
+              blurRadius: 20,
+              spreadRadius: 1,
+            )
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Error Icon
             Icon(
-              Icons.shield_moon_rounded,
-              size: 48,
+              Icons.gpp_maybe_rounded, // Switched to a "Shield with alert" icon
+              size: 52,
               color: AppColors.ember,
             ),
             const SizedBox(height: 16),
+            
+            // Error Title
             Text(
-              _title,
+              _title.toUpperCase(),
               style: const TextStyle(
                 fontFamily: 'monospace',
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: FontWeight.bold,
                 color: AppColors.ember,
+                letterSpacing: 1.0,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            
+            // Error Message
             Text(
               _message,
               style: const TextStyle(
                 color: AppColors.muted,
                 fontSize: 12,
-                height: 1.5,
+                height: 1.6,
               ),
               textAlign: TextAlign.center,
             ),
+            
+            // Technical Debug Info (Optional but professional)
+            if (exception.statusCode > 0) ...[
+              const SizedBox(height: 12),
+              Text(
+                'STATUS_CODE: ${exception.statusCode}',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 9,
+                  color: AppColors.ember.withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+            
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Retry Scan'),
-              style: ElevatedButton.styleFrom(
-                foregroundColor: AppColors.void_bg,
-                backgroundColor: AppColors.arc,
+            
+            // Retry Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text(
+                  'RETRY SECURITY SCAN',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: AppColors.void_bg,
+                  backgroundColor: AppColors.arc,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
               ),
             ),
           ],

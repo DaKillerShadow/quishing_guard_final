@@ -1,3 +1,4 @@
+// lib/core/services/api_service.dart
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,49 +39,25 @@ class ApiService {
   const ApiService(this._dio);
   final Dio _dio;
 
-  // ── Administrative Dashboard Endpoints (Fixed Type Safety) ──────────────────
-
-  /// Fetches URLs reported by users that are pending admin approval.
-  Future<List<Map<String, dynamic>>> adminPendingReports() async {
-    try {
-      final response = await _dio.get('/api/v1/admin/reports/pending');
-      final rawList = response.data['reports'] as List<dynamic>? ?? [];
-      // Cast each item to Map<String, dynamic> to satisfy AdminScreen
-      return rawList.map((item) => item as Map<String, dynamic>).toList();
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  /// Fetches the recent scan history for the admin audit trail.
-  Future<List<Map<String, dynamic>>> adminScanLogs() async {
-    try {
-      final response = await _dio.get('/api/v1/admin/logs');
-      final rawList = response.data['logs'] as List<dynamic>? ?? [];
-      // Cast each item to Map<String, dynamic> to satisfy AdminScreen
-      return rawList.map((item) => item as Map<String, dynamic>).toList();
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
   // ── Public Endpoints ──────────────────────────────────────────────────────
 
-  /// Sends a URL to the Python brain (heuristic engine) for deep analysis.
+  /// Analyse a QR-decoded URL payload via the Flask heuristic engine.
   Future<ScanResult> analyseUrl(String rawPayload) async {
     try {
+      // FIX: Removed hardcoded 'X-API-Key' header.
+      // Public endpoints are protected by rate limiting; admin endpoints use JWT.
       final response = await _dio.post('/api/v1/analyse', data: {
         'url': rawPayload,
         'client_scan_id': const Uuid().v4(),
       });
-
       return ScanResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw _map(e);
     }
   }
 
-  /// Uploads an image for server-side OpenCV QR decoding.
+  /// Upload an image for server-side OpenCV QR decoding.
+  /// Returns a list of decoded payload strings found in the image.
   Future<List<String>> scanImage(List<int> imageBytes, String filename) async {
     try {
       final formData = FormData.fromMap({
@@ -123,7 +100,7 @@ class ApiService {
     }
   }
 
-  /// Health probe — checks if your Render server is awake.
+  /// Health probe — returns true when API is reachable.
   Future<bool> isHealthy() async {
     try {
       final r = await _dio.get(
@@ -136,7 +113,7 @@ class ApiService {
     }
   }
 
-  // ── Admin Endpoints (Requires JWT) ────────────────────────────────────────
+  // ── Admin Endpoints (Requires JWT stored in prefs) ─────────────────────────
 
   Future<String?> adminLogin(String username, String password) async {
     try {
@@ -177,20 +154,62 @@ class ApiService {
     }
   }
 
-  Future<void> adminApprove(int id) async =>
-      _adminPost('/api/v1/admin/blocklist/approve', {'id': id});
-  Future<void> adminReject(int id) async =>
-      _adminPost('/api/v1/admin/blocklist/reject', {'id': id});
-
-  Future<void> _adminPost(String path, Map<String, dynamic> data) async {
+  /// Fetches the recent scan history for the admin audit trail.
+  Future<List<Map<String, dynamic>>> adminScanLogs() async {
     try {
-      await _dio.post(path, data: data);
+      final response = await _dio.get('/api/v1/admin/logs');
+      final rawList = response.data['logs'] as List<dynamic>? ?? [];
+      // Cast each item to Map<String, dynamic> safely
+      return rawList
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     } on DioException catch (e) {
       throw _map(e);
     }
   }
 
-  // ── Configuration ──
+  /// Fetches URLs reported by users that are pending admin approval.
+  Future<List<Map<String, dynamic>>> adminPendingReports() async {
+    try {
+      // Note: The second snippet used '/api/v1/admin/blocklist/pending',
+      // while the first used '/api/v1/admin/reports/pending'.
+      // Ensure this matches your Python backend route!
+      final r = await _dio.get('/api/v1/admin/blocklist/pending');
+
+      // Safely handle response regardless of whether Dio returns a parsed
+      // Map or a raw String.
+      final Map<String, dynamic> body =
+          r.data is Map ? Map<String, dynamic>.from(r.data as Map) : {};
+      final list = (body['pending'] as List<dynamic>?) ?? [];
+
+      // Use whereType<Map> + Map.from() to safely convert each entry
+      return list
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
+  Future<void> adminApprove(int id) async {
+    try {
+      await _dio.post('/api/v1/admin/blocklist/approve', data: {'id': id});
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
+  Future<void> adminReject(int id) async {
+    try {
+      await _dio.post('/api/v1/admin/blocklist/reject', data: {'id': id});
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
+  // ── Base URL update ───────────────────────────────────────────────────────
 
   void updateBaseUrl(String url) {
     _dio.options.baseUrl = url.trimRight().replaceAll(RegExp(r'/+$'), '');
@@ -200,14 +219,14 @@ class ApiService {
     _dio.options.headers['Authorization'] = 'Bearer $token';
   }
 
-  // ── Error Mapping ──
+  // ── Error mapping ─────────────────────────────────────────────────────────
 
   ApiException _map(DioException e) => switch (e.type) {
         DioExceptionType.connectionTimeout ||
         DioExceptionType.sendTimeout ||
         DioExceptionType.receiveTimeout =>
           ApiException(
-              'Request timed out. Please check your internet connection.',
+              'Request timed out. Please check your internet connection and try again.',
               statusCode: 408,
               type: ApiErrorType.timeout),
         DioExceptionType.badResponse => ApiException(
@@ -216,7 +235,7 @@ class ApiService {
             statusCode: e.response?.statusCode ?? 0,
             type: ApiErrorType.server),
         DioExceptionType.connectionError => ApiException(
-            'Cannot reach Quishing Guard server. Check your network or Settings.',
+            'Cannot reach the server. Check your network and API URL in Settings.',
             statusCode: 0,
             type: ApiErrorType.network),
         _ => ApiException(e.message ?? 'An unexpected error occurred.',
