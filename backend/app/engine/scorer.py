@@ -9,6 +9,7 @@ unrolls nested shorteners, and scrapes for HTML evasion.
 from __future__ import annotations
 import math
 import re
+import idna
 import requests
 import ipaddress
 import tldextract
@@ -201,14 +202,38 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "score": W_IP_LITERAL if is_ip else 0, "triggered": is_ip
     })
 
-    # 2. Punycode / Homograph Attack
-    is_puny = "xn--" in full_host
+# 2. Punycode / Homograph / Cyrillic Attack
+    is_puny = False
+    puny_msg = "No Punycode IDN encoding detected. ✓"
+
+    # A) Check for explicit Punycode prefix
+    if "xn--" in full_host:
+        is_puny = True
+        puny_msg = "Punycode (xn--) IDN encoding detected – potential homograph risk!"
+    
+    # B) Check for raw Cyrillic characters (Unicode range 0400–04FF)
+    # Attackers use these because they look exactly like Latin English letters
+    elif re.search(r'[\u0400-\u04FF]', full_host):
+        is_puny = True
+        puny_msg = "Cyrillic homograph characters detected – high phishing risk!"
+        
+    # C) Deep IDNA check (forces weird unicode into standard format to reveal hidden xn--)
+    else:
+        try:
+            encoded_domain = idna.encode(domain).decode('ascii')
+            if "xn--" in encoded_domain and encoded_domain != domain:
+                is_puny = True
+                puny_msg = "Hidden IDN/Homograph encoding detected."
+        except Exception:
+            pass # Ignore if domain encoding completely fails
+
     checks.append({
         "name": "punycode", "label": "Punycode Attack",
         "status": "UNSAFE" if is_puny else "SAFE",
-        "message": "Punycode IDN encoding detected – potential homograph risk!" if is_puny 
-                else "No Punycode IDN encoding detected. ✓",
-        "metric": "", "score": W_PUNYCODE if is_puny else 0, "triggered": is_puny
+        "message": puny_msg,
+        "metric": "", 
+        "score": W_PUNYCODE if is_puny else 0, 
+        "triggered": is_puny
     })
 
     # 3. DGA Entropy Analysis
