@@ -8,6 +8,12 @@ from app.engine.reputation import seed_database
 app = create_app()
 log = get_logger("startup")
 
+# ── ADD YOUR HEALTH CHECK ROUTE HERE ──
+@app.route('/')
+def root_health_check():
+    return {"status": "Quishing Guard Backend is Live"}, 200
+# ──────────────────────────────────────
+
 if __name__ == "__main__":
     # ── 1. DATABASE INITIALIZATION ──
     # Crucial for your project: ensures 'apple.com' and 'aou.edu.eg' are in the DB.
