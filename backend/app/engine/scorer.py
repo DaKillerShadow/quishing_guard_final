@@ -73,6 +73,34 @@ _COMPOUND_PATTERNS = (
     "aramex-payment", "emirates-post-parcel", "fawry-pay", "stc-pay-otp"
 )
 
+# ── Suspicious SLD keywords (Check 9) ────────────────────────────────────────
+_SUSPICIOUS_SLD_KEYWORDS: frozenset[str] = frozenset({
+    # Proxy / evasion
+    "proxy", "poxy", "prxy",
+    # Auth spoofing
+    "login", "logon", "signin", "log-in", "sign-in",
+    "verify", "verif", "verfy",
+    "secure", "secur", "secu",
+    "account", "acct",
+    "update", "updat",
+    "confirm", "confrm",
+    "support", "supp0rt",
+    "suspend", "suspended",
+    "alert", "warning",
+    # Brand typosquats
+    "paypa", "paypai", "paypall",
+    "googl", "g00gle",
+    "micros", "microsooft",
+    "amazn", "amaz0n",
+    "netfl", "netfix",
+    "appl", "app1e",
+    # Generic lure words
+    "free", "gift", "reward", "bonus", "win", "winner",
+    "offer", "deal", "claim", "promo",
+    "help", "helpdesk",
+    "bank", "banking",
+})
+
 # ── 2. Scoring Weights & Critical Floors ─────────────────────────────────────
 
 W_IP_LITERAL     = 25
@@ -83,6 +111,7 @@ W_SUSPICIOUS_TLD = 8
 W_SUBDOMAIN      = 8
 W_HTTPS          = 7
 W_PATH_KEYWORDS  = 15
+W_SLD_KEYWORDS   = 12   # Suspicious keyword found in domain SLD itself
 
 _CRITICAL_OVERRIDE_FLOORS = {
     "ip_literal":   65,
@@ -306,6 +335,22 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_PATH_KEYWORDS if path_hit else 0, "triggered": path_hit
     })
 
+    # ── Check 9: SLD Keyword Analysis ────────────────────────────────────────────
+    sld_lower   = domain.lower()
+    matched_sld = [kw for kw in _SUSPICIOUS_SLD_KEYWORDS if kw in sld_lower]
+    sld_hit     = len(matched_sld) >= 1
+    checks.append({
+        "name": "sld_keywords", "label": "Suspicious Domain Name",
+        "status": "UNSAFE" if sld_hit else "SAFE",
+        "message": (
+            f"The domain name '{domain}' contains suspicious keyword(s): "
+            f"{', '.join(matched_sld[:3])}. "
+            "Attackers embed phishing-related words or brand misspellings in domain names "
+            "to appear legitimate at a glance."
+        ) if sld_hit else "Domain name contains no suspicious keywords or brand impersonation patterns. ✓",
+        "metric": "", "score": W_SLD_KEYWORDS if sld_hit else 0, "triggered": sld_hit
+    })
+
     # Final Aggregation & Overrides
     total_risk = sum(c['score'] for c in checks)
     for c in checks:
@@ -313,6 +358,14 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
             total_risk = max(total_risk, _CRITICAL_OVERRIDE_FLOORS[c['name']])
             
     risk_score = min(100, total_risk)
+
+    triggered_names = [c['name'] for c in checks if c['triggered']]
+    if "suspicious_tld" in triggered_names:
+        # Suspicious TLD + deceptive domain name = guaranteed warning
+        # e.g. egyptpoxy.cc — 'poxy' in SLD + .cc TLD is clearly malicious intent
+        if "sld_keywords" in triggered_names:
+            risk_score = max(risk_score, 35)
+
     risk_label = "safe" if risk_score < 30 else "warning" if risk_score < 65 else "danger"
 
     return {
