@@ -247,7 +247,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_SLD_KEYWORDS if sld_hit else 0, "triggered": sld_hit
     })
 
-    # ── Addition 3: Check 10: URL Shortener Detection ────────────────────────────
+  # ── Check 10: URL Shortener Detection ────────────────────────────────────────
     etld1 = f"{sld}.{tld}".lower()
     hostname = full_host.lower()
     hop_count = total_hops
@@ -255,13 +255,12 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     short_hit = etld1 in _URL_SHORTENERS or hostname in _URL_SHORTENERS
     short_hit = short_hit and hop_count == 0
     
-    checks.append({
-        "name": "url_shortener",
-        "label": "URL Shortener (Hidden Destination)",
-        "status": "UNSAFE" if short_hit else "SAFE",
-        "triggered": short_hit,
-        "score": W_URL_SHORTENER if short_hit else 0,
-        "message": (
+    checks.append(CheckResult(
+        name="url_shortener",
+        label="URL Shortener (Hidden Destination)",
+        triggered=short_hit,
+        score=W_URL_SHORTENER if short_hit else 0,
+        description=(
             f"This QR code uses the URL shortener '{etld1}' to hide the final destination. "
             "URL shorteners in QR codes are a primary quishing technique — the victim cannot "
             "inspect where the link leads without scanning it. The resolver could not follow "
@@ -270,10 +269,8 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
             "No URL shortener detected — destination is directly visible. ✓"
             if etld1 not in _URL_SHORTENERS
             else "URL shortener detected but redirect was followed successfully — final destination scored. ✓"
-        ),
-        "metric": f"Shortener: {etld1}" if short_hit else ""
-    })
-
+        )
+    ))
     # ── Composite score ──────────────────────────────────────────────────────────
     total_risk = sum(c['score'] for c in checks)
     for c in checks:
