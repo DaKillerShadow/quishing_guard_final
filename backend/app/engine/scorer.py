@@ -73,6 +73,11 @@ _COMPOUND_PATTERNS = (
     "aramex-payment", "emirates-post-parcel", "fawry-pay", "stc-pay-otp"
 )
 
+# ── Known URL Shorteners ─────────────────────────────────────────────────────
+KNOWN_SHORTENERS = frozenset({
+    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", 
+    "buff.ly", "adf.ly", "bit.do", "cutt.ly", "rb.gy", "shorturl.at"
+})
 # ── Suspicious SLD keywords (Check 9) ────────────────────────────────────────
 _SUSPICIOUS_SLD_KEYWORDS: frozenset[str] = frozenset({
     # Proxy / evasion
