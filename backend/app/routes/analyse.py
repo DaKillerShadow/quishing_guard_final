@@ -2,7 +2,6 @@
 routes/analyse.py — Master API Endpoint
 ==========================================
 Main analysis endpoint. Coordinates Resolver, Reputation, and Scorer.
-Synchronized with Flutter 'SecurityCheck' model fields.
 """
 from __future__ import annotations
 import hashlib
@@ -18,9 +17,7 @@ from ..database          import db
 from ..limiter           import limiter
     
 bp  = Blueprint("analyse", __name__)
-# Prefix /api/v1 is handled in factory (__init__.py)
 
-# FIXED: Reverted to /analyse and explicitly allowed OPTIONS for CORS
 @bp.route("/analyse", methods=["POST"])
 @limiter.limit("30 per minute")
 def analyse():
@@ -39,7 +36,7 @@ def analyse():
     allowlisted = is_allowlisted(raw_url)
     blocklisted = is_blocklisted(raw_url)
 
-    # 3. Resolve redirects (The "Eyes" of the system)
+    # 3. Resolve redirects
     if allowlisted:
         resolved_url   = raw_url
         redirect_chain = []
@@ -48,7 +45,6 @@ def analyse():
         max_hops = current_app.config.get("MAX_REDIRECT_HOPS", 10)
         timeout  = current_app.config.get("RESOLVER_TIMEOUT", 5)
         
-        # Safely follow the redirect chain
         res = resolve(raw_url, max_hops=max_hops, timeout=timeout)
         resolved_url   = res.resolved_url
         redirect_chain = res.redirect_chain
@@ -60,17 +56,28 @@ def analyse():
         if not blocklisted:
             blocklisted = is_blocklisted(resolved_url)
 
-    # 4. Score heuristics (The "Brain")
-    # Updated to call 'analyze_url' and handle dictionary response
-   # 4. Score heuristics (The "Brain")
-    # Call analyze_url with ONLY the url argument
-    result_data = analyze_url(url=resolved_url)
+    # 4. 🧠 FIXED: Pass the reputation status into the scorer!
+    # This ensures that if blocklisted is True, the score is instantly 100.
+    result_data = analyze_url(
+        url=resolved_url, 
+        blocklisted=blocklisted, 
+        allowlisted=allowlisted
+    )
+
     # 5. Generate unique Scan ID
     scan_id = hashlib.sha256(
         f"{raw_url}{datetime.now(timezone.utc).isoformat()}".encode()
     ).hexdigest()[:16]
 
-    # 6. Persist to Database (Audit Log)
+    # 6. Determine the threat label for the database
+    if allowlisted:
+        threat_text = "None"
+    elif blocklisted:
+        threat_text = "Reputation Blocklist"
+    else:
+        threat_text = "Heuristic Detection"
+
+    # 7. Persist to Database (Audit Log)
     try:
         db.session.add(ScanLog(
             id           = scan_id,
@@ -78,7 +85,7 @@ def analyse():
             resolved_url = resolved_url,
             risk_score   = result_data['risk_score'],
             risk_label   = result_data['risk_label'],
-            top_threat   = "None" if allowlisted else "Heuristic Detection",
+            top_threat   = threat_text,
             hop_count    = hop_count,
             client_ip    = request.remote_addr,
         ))
@@ -86,20 +93,20 @@ def analyse():
     except Exception:
         db.session.rollback()
 
-    # 7. Final JSON Response (STRICTLY SYNCED WITH FLUTTER MODELS)
+    # 8. Final JSON Response
     return jsonify({
         "id":             scan_id,
-        "url":            raw_url,         # Mapping for Flutter model
+        "url":            raw_url,
         "raw_url":        raw_url,         
         "resolved_url":   resolved_url,
         "risk_score":     result_data['risk_score'],
         "risk_label":     result_data['risk_label'],
-        "top_threat":     "None" if allowlisted else "Heuristic Detection",
+        "top_threat":     threat_text,
         "redirect_chain": redirect_chain,
         "hop_count":      hop_count,
         "is_allowlisted": allowlisted,
         "is_blocklisted": blocklisted,
         "overall_assessment": result_data['overall_assessment'],
         "analysed_at":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "checks":         result_data['checks'] # Keys already mapped to message/metric
+        "checks":         result_data['checks']
     }), 200
