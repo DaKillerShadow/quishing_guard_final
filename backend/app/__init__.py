@@ -74,27 +74,19 @@ def create_app(test_config: dict | None = None) -> Flask:
             "retry_after": str(e.description),
         }), 429
 
-    # ── CORS ──────────────────────────────────────────────────────────────
-    # Flask-Cors handles preflight OPTIONS requests automatically.
-    # Without this, browsers block cross-origin requests from the GitHub Pages
-    # frontend before they even reach the API — the browser sends a preflight
-    # OPTIONS request first, and without Flask-Cors responding correctly to it,
-    # the actual POST/GET never fires and the app is completely broken.
-    #
-    # CORS_ORIGINS on Render must be set to the exact GitHub Pages URL:
-    #   https://dakillershadow.github.io
+        # ── Updated CORS ──
     CORS(
         app,
-        # CORS_ORIGINS env var accepts comma-separated list of domains
-        # e.g. "https://dakillershadow.github.io,https://myapp.netlify.app"
+        # Allow specific domains or '*' if it's for public/testing
         origins=[o.strip() for o in app.config["CORS_ORIGINS"].split(",")]
                 if app.config["CORS_ORIGINS"] != "*"
                 else "*",
-        supports_credentials=True,
+        # CHANGED: Set to False. 
+        # This allows the use of '*' origins and prevents browser blocks.
+        supports_credentials=False, 
         allow_headers=["Content-Type", "Authorization"],
         methods=["GET", "POST", "OPTIONS", "DELETE"],
     )
-
     # ── Security headers ───────────────────────────────────────────────────
     @app.after_request
     def security_headers(response):
