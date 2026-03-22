@@ -541,6 +541,35 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_SLD_KEYWORDS if sld_hit else 0, "triggered": sld_hit
     })
 
+        # ── Check 10: URL Shortener Detection ────────────────────────────────────────
+    etld1 = f"{domain}.{suffix}".lower()
+    hostname = full_host.lower()
+    
+    short_hit = etld1 in _URL_SHORTENERS or hostname in _URL_SHORTENERS
+    short_hit = short_hit and total_hops == 0
+    
+    checks.append({
+        "name": "url_shortener",
+        "label": "URL Shortener (Hidden Destination)",
+        "status": "UNSAFE" if short_hit else "SAFE",
+        "message": (
+            f"This QR code uses the URL shortener '{etld1}' to hide the final destination. "
+            "URL shorteners in QR codes are a primary quishing technique — the victim cannot "
+            "inspect where the link leads without scanning it."
+        ) if short_hit else (
+            "No URL shortener detected — destination is directly visible. ✓"
+            if etld1 not in _URL_SHORTENERS
+            else "URL shortener detected but redirect was followed successfully. ✓"
+        ),
+        "metric": f"Shortener: {etld1}" if short_hit else "",
+        "score": W_URL_SHORTENER if short_hit else 0,
+        "triggered": short_hit
+    })
+
+    # Final Aggregation & Overrides
+    total_risk = sum(c['score'] for c in checks)
+    # ... (the rest of your existing code continues here)
+
     # Final Aggregation & Overrides
     total_risk = sum(c['score'] for c in checks)
     for c in checks:
@@ -568,3 +597,5 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "hop_count": total_hops,
         "overall_assessment": f"The provided URL appears to be {risk_label.upper()} based on analyzed indicators."
     }
+
+Check where is the error in this code
