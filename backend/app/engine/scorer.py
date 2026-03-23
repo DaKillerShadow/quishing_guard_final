@@ -21,7 +21,6 @@ Risk labels:
  30–59  warning — amber,  micro-lesson triggered, confirmation required
  60–100 danger  — red,    blocked by default, explicit override needed
 """
-from app.engine.entropy import dga_score
 from __future__ import annotations
 import math
 import re
@@ -31,7 +30,7 @@ import ipaddress
 import tldextract
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-
+from app.engine.entropy import dga_score
 # ── 1. Configuration & Regional Threat Intel ──────────────────────────────────
 
 _BAD_TLDS = {
@@ -139,16 +138,6 @@ _CRITICAL_OVERRIDE_FLOORS = {
 }
 
 # ── 3. Helper Functions ───────────────────────────────────────────────────────
-
-def calculate_entropy(text: str) -> float:
-    if not text:
-        return 0.0
-    entropy = 0.0
-    for x in set(text):
-        p_x = float(text.count(x)) / len(text)
-        entropy += - p_x * math.log2(p_x)
-    return entropy
-
 def trace_redirects(start_url: str) -> dict:
     tracker_results = {
         "hop_count": 0,
@@ -288,15 +277,15 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "triggered": is_puny
     })
 
-    # 3. DGA Entropy Analysis
-    entropy = calculate_entropy(domain)
-    is_dga = entropy > 3.65
+        # 3. DGA Entropy Analysis
+    entropy_result = dga_score(domain)
     checks.append({
         "name": "dga_entropy", "label": "DGA Entropy Analysis",
-        "status": "UNSAFE" if is_dga else "SAFE",
-        "message": f"Domain '{domain}' shows machine-generated patterns." if is_dga else "Domain entropy is within normal range. ✓",
-        "metric": f"Entropy: {entropy:.2f} bits", 
-        "score": W_DGA_ENTROPY if is_dga else 0, "triggered": is_dga
+        "status": "UNSAFE" if entropy_result.is_dga else "SAFE",
+        "message": f"Domain '{domain}' shows machine-generated patterns." if entropy_result.is_dga else "Domain entropy is within normal range. ✓",
+        "metric": f"Entropy: {entropy_result.entropy:.2f} bits", 
+        "score": W_DGA_ENTROPY if entropy_result.is_dga else 0, 
+        "triggered": entropy_result.is_dga
     })
 
     # 4. Redirect Chain Depth
