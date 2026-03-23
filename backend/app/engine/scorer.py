@@ -21,7 +21,7 @@ Risk labels:
  30–59  warning — amber,  micro-lesson triggered, confirmation required
  60–100 danger  — red,    blocked by default, explicit override needed
 """
-
+from app.engine.entropy import dga_score
 from __future__ import annotations
 import math
 import re
