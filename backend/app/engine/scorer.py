@@ -126,9 +126,8 @@ W_SUSPICIOUS_TLD = 8
 W_SUBDOMAIN      = 8
 W_HTTPS          = 7
 W_PATH_KEYWORDS  = 15
-W_SLD_KEYWORDS   = 12   # Suspicious keyword found in domain SLD itself
-# ── ADDITION 1: Weight constant ───────────────────────────────────────────────
-W_URL_SHORTENER  = 15   # Known URL shortener hiding final destination
+W_SLD_KEYWORDS   = 12   
+W_URL_SHORTENER  = 15   
 
 _CRITICAL_OVERRIDE_FLOORS = {
     "ip_literal":   65,
@@ -136,14 +135,12 @@ _CRITICAL_OVERRIDE_FLOORS = {
     "dga_entropy":  62,
     "nested_short": 65,
     "blocklist":    100,
-    # ── ADDITION 4: Override floor ────────────────────────────────────────────
-    "url_shortener": 30,  # Unresolved shortener → hidden destination, minimum WARNING
+    "url_shortener": 30,  
 }
 
 # ── 3. Helper Functions ───────────────────────────────────────────────────────
 
 def calculate_entropy(text: str) -> float:
-    """Calculates Shannon entropy to detect DGA (Domain Generation Algorithms)."""
     if not text:
         return 0.0
     entropy = 0.0
@@ -153,7 +150,6 @@ def calculate_entropy(text: str) -> float:
     return entropy
 
 def trace_redirects(start_url: str) -> dict:
-    """Follows URL redirects, mimics an iPhone, and hunts for HTML meta-refreshes."""
     tracker_results = {
         "hop_count": 0,
         "shortener_count": 0,
@@ -210,12 +206,9 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     Evaluates the URL and generates a professional Security Analysis Report.
     Synchronized with Flutter 'SecurityCheck' model fields.
     """
-    if allowlisted:
-        return {"risk_score": 0, "risk_label": "safe", "checks": [], "overall_assessment": "Trusted Domain.", "resolved_url": url, "redirect_chain": []}
+    # ❌ REMOVED EARLY EXIT: 
+    # We deliberately let the engine run so Flutter gets the full list of checks!
     
-    if blocklisted:
-        return {"risk_score": 100, "risk_label": "danger", "checks": [], "overall_assessment": "Known Malicious Domain.", "resolved_url": url, "redirect_chain": []}
-
     checks = []
     
     # --- PHASE 1: THE UNROLLER ---
@@ -354,7 +347,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_PATH_KEYWORDS if path_hit else 0, "triggered": path_hit
     })
 
-    # ── Check 9: SLD Keyword Analysis ────────────────────────────────────────────
+    # 9. SLD Keyword Analysis
     sld_lower   = domain.lower()
     matched_sld = [kw for kw in _SUSPICIOUS_SLD_KEYWORDS if kw in sld_lower]
     sld_hit     = len(matched_sld) >= 1
@@ -370,11 +363,9 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_SLD_KEYWORDS if sld_hit else 0, "triggered": sld_hit
     })
 
-    # ── ADDITION 3: Check 10 — URL Shortener Detection ────────────────────────
+    # 10. URL Shortener Detection 
     etld1 = f"{domain}.{suffix}".lower()
     short_hit = etld1 in _URL_SHORTENERS or full_host.lower() in _URL_SHORTENERS
-    # Only flag if hop_count is 0 — if resolver followed it successfully,
-    # the final destination is already scored properly
     short_hit = short_hit and total_hops == 0
     checks.append({
         "name": "url_shortener", "label": "URL Shortener (Hidden Destination)",
@@ -392,7 +383,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_URL_SHORTENER if short_hit else 0, "triggered": short_hit
     })
 
-    # Final Aggregation & Overrides
+    # ── ✅ FINAL AGGREGATION & OVERRIDES (Your 2nd Addition!) ──
     total_risk = sum(c['score'] for c in checks)
     for c in checks:
         if c['triggered'] and c['name'] in _CRITICAL_OVERRIDE_FLOORS:
@@ -400,22 +391,33 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
             
     risk_score = min(100, total_risk)
 
+    # ── 🚨 NEW LOGIC: OVERRIDE SCORE BUT KEEP THE CHECKS ──
+    if blocklisted:
+        risk_score = 100
+    elif allowlisted:
+        risk_score = 0
+
     triggered_names = [c['name'] for c in checks if c['triggered']]
-    if "suspicious_tld" in triggered_names:
-        # Suspicious TLD + deceptive domain name = guaranteed warning
-        # e.g. egyptpoxy.cc — 'poxy' in SLD + .cc TLD is clearly malicious intent
-        if "sld_keywords" in triggered_names:
-            risk_score = max(risk_score, 35)
+    if "suspicious_tld" in triggered_names and "sld_keywords" in triggered_names and not blocklisted:
+        risk_score = max(risk_score, 35)
 
     risk_label = "safe" if risk_score < 30 else "warning" if risk_score < 65 else "danger"
+
+    # Dynamic assessment text based on reputation
+    if blocklisted:
+        assessment_text = "Known Malicious Domain. Blocked by Administrator."
+    elif allowlisted:
+        assessment_text = "Trusted Domain. Approved by Administrator."
+    else:
+        assessment_text = f"The provided URL appears to be {risk_label.upper()} based on analyzed indicators."
 
     return {
         "url": url,
         "resolved_url": target_url,
         "risk_score": risk_score,
         "risk_label": risk_label,
-        "checks": checks,
+        "checks": checks,  # ✅ Flutter will now ALWAYS receive the analysis data!
         "redirect_chain": chain,
         "hop_count": total_hops,
-        "overall_assessment": f"The provided URL appears to be {risk_label.upper()} based on analyzed indicators."
+        "overall_assessment": assessment_text
     }
