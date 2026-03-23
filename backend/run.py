@@ -1,6 +1,6 @@
 """run.py — Entry point for Quishing Guard API v2."""
 import os
-from app import create_app
+from app import create_app, db  # 👈 Added 'db' here
 from app.logger import get_logger
 from app.engine.reputation import seed_database 
 
@@ -16,6 +16,9 @@ def root_health_check():
 # Crucial for your project: ensures 'apple.com' and 'aou.edu.eg' are in the DB.
 try:
     with app.app_context():
+        log.info("🛠️ Checking database tables...")
+        db.create_all()  # 👈 THIS ENSURES TABLES EXIST BEFORE SEEDING
+        
         log.info("🌱 Seeding database with built-in reputation lists...")
         seed_database()
         log.info("✅ Database seeded successfully.")
