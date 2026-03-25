@@ -1,6 +1,6 @@
 # 🛡 Quishing Guard
 
-**QR-based Phishing Detection — Mobile-First PWA + Flask API**
+**QR-based Phishing Detection — Flutter Native App + Flask API + PostgreSQL**
 
 > TM471 Graduation Project · Arab Open University · Student ID: 22510076
 
@@ -14,72 +14,156 @@ Unlike commercial scanners that silently allow or block URLs via cloud blocklist
 
 | Property | Detail |
 |---|---|
-| **Explainable** | Every risk point is traceable to a specific, documented check |
-| **Zero-day aware** | Shannon Entropy detects DGA domains without needing a blocklist entry |
-| **Privacy-first** | No images stored; stateless URL analysis only |
-| **Educational** | Context-specific micro-lessons at the moment of threat detection |
-| **Lightweight** | No ML model, no GPU, no paid API keys |
+| **Explainable** | Every risk point is traceable to 10 specific, documented heuristic checks. |
+| **Zero-day aware** | Shannon Entropy ($H = -\sum p \log_2 p$) detects DGA domains without needing a blocklist entry. |
+| **Regionally Tailored** | Built-in threat intelligence targets Middle Eastern phishing lures (e.g., Fawry, Nafath, UAE Pass). |
+| **Educational** | Context-specific micro-lessons trigger at the moment of threat detection. |
+| **Secure by Design** | Features an approval-based reporting workflow and SSRF-guarded URL unrolling. |
 
 ---
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
-│  PWA (index.html + CSS + JS modules)                        │
-│  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌───────────────┐  │
-│  │ scanner │  │   api    │  │  app   │  │      db       │  │
-│  │ .js     │  │   .js    │  │  .js   │  │  (IndexedDB)  │  │
-│  └────┬────┘  └────┬─────┘  └────────┘  └───────────────┘  │
-│       │jsQR        │REST                                     │
+│  Mobile App (Flutter / Dart)                                │
+│  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌───────────────┐   │
+│  │ QR_Code │  │ HTTP_Req │  │   UI   │  │ Local Storage │   │
+│  │ Scanner │  │  Client  │  │ Render │  │ (Preferences) │   │
+│  └────┬────┘  └────┬─────┘  └────────┘  └───────────────┘   │
 └───────┼────────────┼────────────────────────────────────────┘
         │            │ POST /api/v1/analyse
 ┌───────▼────────────▼────────────────────────────────────────┐
-│  Flask API (backend/)                                        │
-│  ┌───────────┐  ┌──────────┐  ┌────────────┐               │
-│  │ resolver  │  │  scorer  │  │ reputation │               │
-│  │ (7 hops)  │  │ (7 chks) │  │ allow/block│               │
-│  └───────────┘  └──────────┘  └────────────┘               │
-│       entropy.py  (Shannon H = -∑p·log₂p)                  │
-└─────────────────────────────────────────────────────────────┘
-```
+│  Flask API Backend (Render / Gunicorn WSGI)                 │
+│  ┌───────────┐  ┌──────────┐  ┌────────────┐  ┌─────────┐   │
+│  │ resolver  │  │  scorer  │  │ reputation │  │  Admin  │   │
+│  │ (Unroll)  │  │(10 chks) │  │ DB Lookup  │  │   API   │   │
+│  └───────────┘  └──────────┘  └──────┬─────┘  └────┬────┘   │
+└──────────────────────────────────────┼─────────────┼────────┘
+                                       │             │
+                               ┌───────▼─────────────▼────────┐
+                               │  PostgreSQL Database         │
+                               │  (Blocklist, Allowlist,      │
+                               │   Scan Logs, Audit Trail)    │
+                               └──────────────────────────────┘
 
----
-
-## Detection Engine — 7 Heuristic Checks
-
+Detection Engine — 10 Heuristic Checks
+The backend engine traces redirects, defeats HTML meta-refresh evasion, and scores the final destination against 10 critical indicators:
 | Check | Max Pts | Threat Detected |
 |---|---|---|
-| `ip_literal` | 25 | Raw IP address instead of domain |
-| `punycode` | 30 | IDN homograph / Punycode brand impersonation |
-| `dga_entropy` | 20 | Shannon Entropy > 3.2 → DGA domain suspected |
-| `redirect_depth` | 20 | ≥ 3 redirect hops (URL cloaking) |
-| `suspicious_tld` | 8 | High-abuse TLDs (.tk, .ru, .ml, .xyz…) |
-| `subdomain_depth` | 8 | ≥ 4 domain labels |
-| `https_mismatch` | 7 | HTTP instead of HTTPS |
-
-**Score thresholds:** 0–29 = safe 🟢 · 30–59 = warning 🟡 · 60–100 = danger 🔴
-
----
-
-## Micro-Learning Content (§3.9)
-
+| ip_literal | 25 | Raw IP address used instead of domain |
+| punycode | 30 | IDN homograph / Cyrillic brand impersonation |
+| dga_entropy | 20 | High Shannon Entropy → DGA domain suspected |
+| redirect_depth | 20 | ≥ 3 redirect hops (URL cloaking) |
+| suspicious_tld | 8 | High-abuse TLDs (.tk, .ru, .zip, .icu…) |
+| subdomain_depth | 8 | Excessive domain nesting (≥ 3 labels) |
+| https_mismatch | 7 | Unencrypted HTTP protocol |
+| path_keywords | 15 | Phishing path markers (e.g., vodafone-cash, nafath, login) |
+| sld_keywords | 12 | Brand typosquatting in domain (e.g., paypa, googl) |
+| url_shortener | 15 | QR payload is a URL shortener hiding the true destination |
+Score thresholds: 0–29 = safe 🟢 · 30–64 = warning 🟡 · 65–100 = danger 🔴
+Micro-Learning Content
 Four context-specific lessons triggered automatically on high-risk scans:
-
 | Trigger | Lesson Title |
 |---|---|
-| `dga_entropy` | Algorithmically Generated Domain |
-| `punycode` | Visual Impersonation Attempt |
-| `ip_literal` | IP Address Used Instead of Domain |
-| `redirect_depth` | Suspicious Redirect Chain Detected |
+| dga_entropy | Algorithmically Generated Domains (DGA) |
+| punycode | Visual Impersonation & Homograph Attacks |
+| url_shortener | The Danger of Hidden Destinations in QR Codes |
+| redirect_depth | Suspicious Redirect Chains and Cloaking |
+Quick Start
+Prerequisites
+ * Python 3.11+
+ * PostgreSQL
+ * Flutter SDK (3.x)
+1. Run the Backend API
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
----
+# Start the Flask development server (auto-creates and seeds DB)
+python run.py
+# API running at http://localhost:5000
 
-## Quick Start
+2. Run the Mobile App
+cd mobile
+flutter pub get
+flutter run
 
-### Prerequisites
-- Python 3.11+
-- A modern browser (Chrome 120+, Safari 16+, Firefox 120+)
+API Reference
+POST /api/v1/analyse
+The master endpoint for resolving and scoring a scanned QR URL.
+// Request
+{ "url": "[https://bit.ly/malicious-example](https://bit.ly/malicious-example)" }
+
+// Response
+{
+  "id": "a3f9b2c1d4e5f6a7",
+  "raw_url": "[https://bit.ly/malicious-example](https://bit.ly/malicious-example)",
+  "resolved_url": "[https://xn--pple-43d.com/login](https://xn--pple-43d.com/login)",
+  "risk_score": 100,
+  "risk_label": "danger",
+  "top_threat": "Heuristic Detection",
+  "redirect_chain": ["[https://bit.ly/malicious-example](https://bit.ly/malicious-example)"],
+  "hop_count": 1,
+  "is_allowlisted": false,
+  "is_blocklisted": false,
+  "checks": [
+    { "name": "punycode", "label": "Punycode Attack", "triggered": true, "score": 30, "message": "Punycode (xn--) IDN encoding detected..." }
+  ],
+  "analysed_at": "2026-03-25T12:00:00Z"
+}
+
+POST /api/v1/report
+Queues a user-reported malicious domain for administrative review (is_approved=False).
+GET /api/v1/admin/dashboard (Requires JWT Auth)
+Returns system KPIs, 7-day scan trends, and pending review counts.
+Project Structure
+quishing_guard/
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py          ← Flask app factory & Error Handlers
+│   │   ├── database.py          ← SQLAlchemy initialization
+│   │   ├── engine/
+│   │   │   ├── entropy.py       ← Shannon Entropy math
+│   │   │   ├── resolver.py      ← Safe URL unroller (SSRF-guarded)
+│   │   │   ├── scorer.py        ← 10-check heuristic scoring engine
+│   │   │   └── reputation.py    ← DB & Memory allow/blocklist lookup
+│   │   ├── models/
+│   │   │   └── db_models.py     ← SQLAlchemy ORM (Blocklist, ScanLog)
+│   │   ├── routes/
+│   │   │   ├── analyse.py       ← POST /api/v1/analyse
+│   │   │   ├── admin.py         ← JWT-secured Admin Dashboard endpoints
+│   │   │   ├── report.py        ← POST /api/v1/report
+│   │   │   └── health.py        ← GET /api/v1/health
+│   │   └── utils/
+│   │       ├── auth.py          ← JWT validation middleware
+│   │       └── validators.py    ← Input payload validation
+│   ├── render.yaml              ← Render IaC configuration
+│   ├── requirements.txt
+│   └── run.py                   ← Gunicorn entry point & DB Seeder
+├── mobile/                      ← Flutter Front-end application
+│   ├── lib/
+│   │   ├── main.dart
+│   │   ├── screens/
+│   │   └── services/
+│   └── pubspec.yaml
+└── README.md
+
+Deployment (Render)
+The backend is deployed using Infrastructure as Code (render.yaml). It automatically provisions a Web Service (Gunicorn/Flask) and a PostgreSQL database.
+# Push to GitHub to trigger automatic build and DB migrations
+git add .
+git commit -m "Deploy V2"
+git push origin main
+
+References
+ * Shannon, C.E. (1948). A Mathematical Theory of Communication. Bell System Technical Journal, 27(3), 379–423.
+ * Mamun, M.S.I. et al. (2016). Detecting Malicious URLs Using Lexical Analysis. NSS 2016, Springer.
+ * Cloudflare. (2025). What is quishing? https://www.cloudflare.com/learning/security/what-is-quishing/
+ * Kieseberg, P. et al. (2010). QR Code Security. MoMM 2010, ACM.
+Arab Open University · TM471 · Student: Mohamed Abdelfattah Hamdy Mohamed · ID: 22510076
+
 
 ### 1. Run the Flask API
 
