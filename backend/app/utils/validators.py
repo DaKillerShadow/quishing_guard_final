@@ -2,16 +2,16 @@
 import re
 from urllib.parse import urlparse
 
-
 # QR payloads that are NOT URLs (skip URL analysis)
+# Kept strictly lowercase for case-insensitive matching
 _NON_URL_PREFIXES = (
-    "WIFI:", "wifi:", "BEGIN:VCARD", "BEGIN:VCALENDAR",
-    "MATMSG:", "tel:", "sms:", "geo:", "mailto:",
+    "wifi:", "begin:vcard", "begin:vcalendar",
+    "matmsg:", "tel:", "sms:", "geo:", "mailto:",
     "smsto:", "mms:", "bitcoin:", "ethereum:", "litecoin:",
 )
 
 # Supported URL schemes
-_ALLOWED_SCHEMES = {"http", "https"}
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 # Max URL length (WHATWG recommends ≤ 2083 for IE compat; we're generous)
 MAX_URL_LEN = 8192
@@ -32,19 +32,20 @@ def validate_url_payload(payload: str) -> tuple[bool, str]:
     if len(payload) > MAX_URL_LEN:
         return False, f"Payload exceeds maximum length of {MAX_URL_LEN} characters."
 
-    if payload.startswith(_NON_URL_PREFIXES):
-        return False, f"Non-URL QR payload type detected (e.g., WIFI, vCard). Analysis not applicable."
-
-    # Normalise: add scheme only if no scheme present at all.
-    # Using "://" avoids prepending https:// onto schemes like ftp://, which
-    # would produce "https://ftp://…" and cause urlparse to read the scheme
-    # as "https", silently bypassing the scheme allowlist check below.
-    if "://" not in payload:
-        payload = "https://" + payload
+    # Case-insensitive prefix check to catch "WiFi:", "WIFI:", etc.
+    if payload.lower().startswith(_NON_URL_PREFIXES):
+        return False, "Non-URL QR payload type detected (e.g., WIFI, vCard). Analysis not applicable."
 
     try:
         parsed = urlparse(payload)
-    except Exception:
+        
+        # Safely normalize: add scheme only if the parser confirms no scheme exists.
+        # This prevents bypassing the allowlist with strings like 'javascript:alert(1)'
+        if not parsed.scheme:
+            payload = "https://" + payload
+            parsed = urlparse(payload)
+            
+    except ValueError:
         return False, "Malformed URL — unable to parse."
 
     if parsed.scheme not in _ALLOWED_SCHEMES:
