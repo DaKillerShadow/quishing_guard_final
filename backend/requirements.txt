@@ -1,13 +1,26 @@
+# --- Core Framework ---
 Flask>=3.0.0
 Flask-Cors>=4.0.0
-idna>=3.6
-tldextract>=5.1.0          # CRITICAL: For accurate eTLD+1 parsing
+
+# --- Database & Caching ---
 Flask-SQLAlchemy>=3.1.0
-psycopg2-binary>=2.9
+psycopg2-binary>=2.9      # Required for Render PostgreSQL
+redis>=5.0.0              # Required for Flask-Limiter Redis backend
+
+# --- Security & Auth ---
 PyJWT>=2.8.0
 Flask-Limiter>=3.7.0
+
+# --- Heuristic Engine & Network ---
+requests>=2.31.0          # CRITICAL: For resolver.py and scorer.py
+idna>=3.6
+tldextract>=5.1.0         # CRITICAL: For accurate eTLD+1 parsing
+beautifulsoup4>=4.12.3    # For HTML meta-refresh evasion detection
+
+# --- Image Processing (QR Scanning) ---
 opencv-python-headless>=4.9.0
 numpy>=1.26.0
+
+# --- Server & Testing ---
 gunicorn>=21.2
 pytest>=8.0
-beautifulsoup4>=4.12.3
