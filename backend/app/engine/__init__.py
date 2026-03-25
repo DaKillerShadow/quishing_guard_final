@@ -1,23 +1,26 @@
 """
-engine/__init__.py — Engine Module Exports
-==========================================
-Exposes the core security functions to the rest of the application.
+engine/__init__.py — Security Engine Interface
+==============================================
+Exposes the core analytical functions to the rest of the application.
+Acting as the central hub for Reputation, Heuristics, and Resolution.
 """
 
+# ── 1. Core Analytical Exports ───────────────────────────────────────────────
 from .entropy    import dga_score, EntropyResult
-from .reputation import is_allowlisted, is_blocklisted, seed_database, add_to_blocklist
+from .reputation import add_to_blocklist, is_allowlisted, is_blocklisted, seed_database
 from .resolver   import resolve, ResolverResult
 from .scorer     import analyze_url
 
-# We keep __all__ clean to avoid "cannot import name" errors on Render
+# ── 2. Public API Definition ─────────────────────────────────────────────────
+# Alphabetized for clarity and PEP 8 compliance
 __all__ = (
-    "EntropyResult",
-    "ResolverResult",
     "add_to_blocklist",
     "analyze_url",
     "dga_score",
+    "EntropyResult",
     "is_allowlisted",
     "is_blocklisted",
     "resolve",
+    "ResolverResult",
     "seed_database",
 )
