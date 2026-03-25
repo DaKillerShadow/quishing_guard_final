@@ -413,12 +413,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "hop_count": total_hops,
         "overall_assessment": assessment_text
     }
-    "free", "gift", "reward", "bonus", "win", "winner",
-    "offer", "deal", "claim", "promo",
-    "help", "helpdesk",
-    "bank", "banking",
-})
-
+    
 # ── ADDITION 2: Known URL shortener domains ───────────────────────────────────
 _URL_SHORTENERS: frozenset[str] = frozenset({
     "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "rebrand.ly",
