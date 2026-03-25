@@ -2,7 +2,7 @@
 
 **QR-based Phishing Detection — Flutter Native App + Flask API + PostgreSQL**
 
-> TM471 Graduation Project · Arab Open University · Student ID: 22510076
+> TM471 Graduation Project · Arab Open University ·
 
 ---
 
