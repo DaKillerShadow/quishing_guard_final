@@ -17,6 +17,14 @@ def root_health_check():
 try:
     with app.app_context():
         log.info("🛠️ Checking database tables...")
+        
+        # 🚨 IMPORTANT: Import models here so SQLAlchemy knows they exist before creating tables
+        # Adjust 'app.models.db_models' if your models file is named differently
+        try:
+            from app.models import db_models 
+        except ImportError:
+            log.warning("⚠️ Could not import app.models.db_models. Ensure the path is correct.")
+        
         db.create_all()  # 👈 THIS ENSURES TABLES EXIST BEFORE SEEDING
         
         log.info("🌱 Seeding database with built-in reputation lists...")
@@ -32,7 +40,10 @@ if os.environ.get("ADMIN_PASSWORD", "change-me") == "change-me":
 
 # ── 3. LOCAL DEVELOPMENT EXECUTION (Ignored by Render) ──
 if __name__ == "__main__":
-    port  = int(os.environ.get("PORT", 5000))
+    # Robust port parsing to avoid ValueErrors if PORT is empty or malformed
+    port_env = os.environ.get("PORT", "5000")
+    port = int(port_env) if port_env.isdigit() else 5000
+    
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     
     log.info(f"🚀 Starting Quishing Guard API v2 locally on port {port}")
