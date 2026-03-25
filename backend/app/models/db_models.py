@@ -13,8 +13,14 @@ The old JSON approach was NOT thread-safe (two workers could clobber
 each other's writes on blocklist.json simultaneously).
 """
 from __future__ import annotations
+import secrets
 from datetime import datetime, timezone
 from ..database import db
+
+
+def generate_scan_id() -> str:
+    """Generate a random 16-character hex string for the ScanLog primary key."""
+    return secrets.token_hex(8)
 
 
 class BlocklistEntry(db.Model):
@@ -41,6 +47,9 @@ class BlocklistEntry(db.Model):
         nullable=False,
     )
 
+    def __repr__(self) -> str:
+        return f"<BlocklistEntry id={self.id} domain='{self.domain}' approved={self.is_approved}>"
+
     def to_dict(self) -> dict:
         return {
             "id":          self.id,
@@ -48,7 +57,7 @@ class BlocklistEntry(db.Model):
             "reason":      self.reason,
             "added_by":    self.added_by,
             "is_approved": self.is_approved,
-            "added_at":    self.added_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "added_at":    self.added_at.strftime("%Y-%m-%dT%H:%M:%SZ") if self.added_at else None,
         }
 
 
@@ -64,6 +73,16 @@ class AllowlistEntry(db.Model):
         nullable=False,
     )
 
+    def __repr__(self) -> str:
+        return f"<AllowlistEntry id={self.id} domain='{self.domain}'>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id":       self.id,
+            "domain":   self.domain,
+            "added_at": self.added_at.strftime("%Y-%m-%dT%H:%M:%SZ") if self.added_at else None,
+        }
+
 
 class ScanLog(db.Model):
     """
@@ -78,7 +97,8 @@ class ScanLog(db.Model):
     """
     __tablename__ = "scan_logs"
 
-    id           = db.Column(db.String(16), primary_key=True)
+    # Fixed: Added secure default generator for string primary key
+    id           = db.Column(db.String(16), primary_key=True, default=generate_scan_id)
     raw_url      = db.Column(db.Text, nullable=False)
     resolved_url = db.Column(db.Text)
     risk_score   = db.Column(db.Integer, default=0)
@@ -92,3 +112,18 @@ class ScanLog(db.Model):
         nullable=False,
         index=True,
     )
+
+    def __repr__(self) -> str:
+        return f"<ScanLog id='{self.id}' score={self.risk_score} label='{self.risk_label}'>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id":           self.id,
+            "raw_url":      self.raw_url,
+            "resolved_url": self.resolved_url,
+            "risk_score":   self.risk_score,
+            "risk_label":   self.risk_label,
+            "top_threat":   self.top_threat,
+            "hop_count":    self.hop_count,
+            "scanned_at":   self.scanned_at.strftime("%Y-%m-%dT%H:%M:%SZ") if self.scanned_at else None,
+        }
