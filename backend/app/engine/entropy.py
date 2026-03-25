@@ -18,6 +18,7 @@ Thresholds (Mamun et al., 2016):
 from __future__ import annotations
 import math
 import re
+import collections
 from dataclasses import dataclass
 
 
@@ -40,10 +41,11 @@ def _shannon(s: str) -> float:
     """Compute Shannon entropy of string s in bits per character."""
     if not s:
         return 0.0
-    freq: dict[str, int] = {}
-    for ch in s:
-        freq[ch] = freq.get(ch, 0) + 1
+    
     n = len(s)
+    # Optimized frequency counting using CPython's built-in Counter
+    freq = collections.Counter(s)
+    
     return -sum((c / n) * math.log2(c / n) for c in freq.values())
 
 
@@ -63,6 +65,13 @@ def dga_score(sld: str) -> EntropyResult:
     Returns:
         EntropyResult with entropy value, DGA flag, and confidence level.
     """
+    # Fallback to prevent AttributeError if upstream parser passes None
+    if not sld:
+        return EntropyResult(
+            label="", entropy=0.0,
+            is_dga=False, is_suspicious=False, confidence="low"
+        )
+
     label = sld.lower().strip()
 
     # Too short to be meaningful
@@ -76,7 +85,9 @@ def dga_score(sld: str) -> EntropyResult:
 
     # Compute entropy on the letters-only version as a secondary check.
     # Real DGA domains remain high-entropy even when digits/hyphens removed.
-    h_letters = _shannon(_clean_label(label)) if len(_clean_label(label)) >= 4 else h
+    # We assign the cleaned label to a variable to prevent running the regex twice.
+    cleaned_label = _clean_label(label)
+    h_letters = _shannon(cleaned_label) if len(cleaned_label) >= 4 else h
 
     is_suspicious = h >= ENTROPY_SAFE
     is_dga        = h >= ENTROPY_WARN and h_letters >= ENTROPY_SAFE
