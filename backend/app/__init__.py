@@ -54,17 +54,9 @@ def create_app(test_config: dict | None = None) -> Flask:
     db.init_app(app)
     limiter.init_app(app)
 
-    # ── Create tables + seed DB ───────────────────────────────────────────
-    with app.app_context():
-        # Models must be imported before db.create_all() so SQLAlchemy
-        # has registered the table definitions. Without this import the
-        # metadata is empty and create_all() produces a blank database,
-        # causing seed_database() to fail with "no such table".
-        from .models.db_models import BlocklistEntry, AllowlistEntry, ScanLog  # noqa: F401
-        db.create_all()
-        from .engine.reputation import seed_database
-        seed_database()
-        log.info("Database ready")
+    # 🚨 DB INIT REMOVED: 
+    # db.create_all() and seed_database() have been safely moved to run.py
+    # to prevent Gunicorn worker race conditions and database locks.
 
     # ── Rate-limit error handler (returns JSON not HTML) ──────────────────
     @app.errorhandler(429)
@@ -74,19 +66,18 @@ def create_app(test_config: dict | None = None) -> Flask:
             "retry_after": str(e.description),
         }), 429
 
-        # ── Updated CORS ──
+    # ── Updated CORS ──────────────────────────────────────────────────────
+    raw_origins = app.config["CORS_ORIGINS"]
+    cors_origins = [o.strip() for o in raw_origins.split(",")] if raw_origins != "*" else "*"
+    
     CORS(
         app,
-        # Allow specific domains or '*' if it's for public/testing
-        origins=[o.strip() for o in app.config["CORS_ORIGINS"].split(",")]
-                if app.config["CORS_ORIGINS"] != "*"
-                else "*",
-        # CHANGED: Set to False. 
-        # This allows the use of '*' origins and prevents browser blocks.
+        origins=cors_origins,
         supports_credentials=False, 
         allow_headers=["Content-Type", "Authorization"],
         methods=["GET", "POST", "OPTIONS", "DELETE"],
     )
+
     # ── Security headers ───────────────────────────────────────────────────
     @app.after_request
     def security_headers(response):
@@ -100,6 +91,19 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .routes.analyse import bp as analyse_bp
     from .routes.report  import bp as report_bp
     from .routes.health  import bp as health_bp
+    from .routes.admin   import bp as admin_bp
+    from .routes.scan_image import bp as scan_image_bp
+
+    # FIXED: Added the /api/v1 prefix to correctly map the endpoints
+    app.register_blueprint(auth_bp, url_prefix='/api/v1/auth')
+    app.register_blueprint(analyse_bp, url_prefix='/api/v1')
+    app.register_blueprint(report_bp, url_prefix='/api/v1')
+    app.register_blueprint(health_bp, url_prefix='/api/v1')
+    app.register_blueprint(admin_bp, url_prefix='/api/v1/admin')
+    app.register_blueprint(scan_image_bp, url_prefix='/api/v1')
+
+    log.info("Quishing Guard app created")
+    return app
     from .routes.admin   import bp as admin_bp
     from .routes.scan_image import bp as scan_image_bp
 
