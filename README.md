@@ -162,8 +162,7 @@ References
  * Mamun, M.S.I. et al. (2016). Detecting Malicious URLs Using Lexical Analysis. NSS 2016, Springer.
  * Cloudflare. (2025). What is quishing? https://www.cloudflare.com/learning/security/what-is-quishing/
  * Kieseberg, P. et al. (2010). QR Code Security. MoMM 2010, ACM.
-Arab Open University · TM471 · Student: Mohamed Abdelfattah Hamdy Mohamed · ID: 22510076
-
+Arab Open University · TM471 · Student: Mohamed Abdelfattah Hamdy .
 
 ### 1. Run the Flask API
 
