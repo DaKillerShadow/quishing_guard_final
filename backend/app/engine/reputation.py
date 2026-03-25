@@ -1,3 +1,10 @@
+"""
+reputation.py — Reputation & List Management Engine
+===================================================
+Handles domain-level trust and threat intelligence. 
+Replaces flat JSON files with SQLAlchemy-backed lookups.
+"""
+
 from __future__ import annotations
 import tldextract
 from flask import current_app
@@ -7,7 +14,7 @@ _BUILTIN_ALLOWLIST: frozenset[str] = frozenset({
     "google.com", "googleapis.com", "goo.gl",
     "microsoft.com", "live.com", "outlook.com", "office.com",
     "apple.com", "icloud.com", "facebook.com", "instagram.com", 
-    "twitter.com", "x.com", "linkedin.com", "youtube.com", "tiktok.com", # 👈 Fixed to match base domain format
+    "twitter.com", "x.com", "linkedin.com", "youtube.com", "tiktok.com",
     "paypal.com", "stripe.com", "visa.com", "mastercard.com",
     "github.com", "gitlab.com", "amazon.com", "amazonaws.com",
     "cloudflare.com", "wise.com", "revolut.com",
@@ -35,6 +42,7 @@ def _get_etld1(url_or_hostname: str) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def is_allowlisted(url_or_hostname: str) -> bool:
+    """Check if a domain is trusted via built-in list or DB."""
     domain = _get_etld1(url_or_hostname)
     # Check built-in list
     if domain in _BUILTIN_ALLOWLIST:
@@ -44,10 +52,11 @@ def is_allowlisted(url_or_hostname: str) -> bool:
         from ..models.db_models import AllowlistEntry
         return AllowlistEntry.query.filter_by(domain=domain).first() is not None
     except Exception as e:
-        current_app.logger.error(f"DB Error checking allowlist for {domain}: {e}") # 👈 Added safe error logging
+        current_app.logger.error(f"DB Error checking allowlist for {domain}: {e}")
         return False
 
 def is_blocklisted(url_or_hostname: str) -> bool:
+    """Check if a domain is malicious via built-in list or DB."""
     domain = _get_etld1(url_or_hostname)
     # Check built-in list
     if domain in _BUILTIN_BLOCKLIST:
@@ -57,10 +66,11 @@ def is_blocklisted(url_or_hostname: str) -> bool:
         from ..models.db_models import BlocklistEntry
         return BlocklistEntry.query.filter_by(domain=domain, is_approved=True).first() is not None
     except Exception as e:
-        current_app.logger.error(f"DB Error checking blocklist for {domain}: {e}") # 👈 Added safe error logging
+        current_app.logger.error(f"DB Error checking blocklist for {domain}: {e}")
         return False
 
 def add_to_blocklist(domain: str, reason: str = "user_report") -> None:
+    """Submit a domain for admin review."""
     domain = _get_etld1(domain)
     try:
         from ..models.db_models import BlocklistEntry
@@ -70,7 +80,7 @@ def add_to_blocklist(domain: str, reason: str = "user_report") -> None:
             db.session.add(entry)
             db.session.commit()
     except Exception as e:
-        current_app.logger.error(f"DB Error adding to blocklist for {domain}: {e}") # 👈 Added safe error logging
+        current_app.logger.error(f"DB Error adding to blocklist for {domain}: {e}")
 
 # ── [THE MISSING FUNCTION] ────────────────────────────────────────────────────
 
@@ -83,7 +93,7 @@ def seed_database() -> None:
     from ..database import db
 
     try:
-        # 1. Fetch all existing domains from the DB into memory
+        # 1. Fetch all existing domains from the DB into memory using entities only for speed
         existing_blocks = {entry.domain for entry in BlocklistEntry.query.with_entities(BlocklistEntry.domain).all()}
         existing_allows = {entry.domain for entry in AllowlistEntry.query.with_entities(AllowlistEntry.domain).all()}
 
@@ -93,13 +103,22 @@ def seed_database() -> None:
 
         # 3. Add only the missing entries
         for domain in missing_blocks:
-            db.session.add(BlocklistEntry(domain=domain, reason="seed", added_by="seed", is_approved=True))
+            db.session.add(BlocklistEntry(
+                domain=domain, 
+                reason="seed", 
+                added_by="seed", 
+                is_approved=True
+            ))
             
         for domain in missing_allows:
             db.session.add(AllowlistEntry(domain=domain))
 
-        # 4. Commit once
+        # 4. Commit once for the whole transaction
         if missing_blocks or missing_allows:
+            db.session.commit()
+    except Exception as e:
+        # Fallback to standard logging if current_app isn't ready during boot
+        print(f"DB Error seeding database: {e}")
             db.session.commit()
     except Exception as e:
         current_app.logger.error(f"DB Error seeding database: {e}")
