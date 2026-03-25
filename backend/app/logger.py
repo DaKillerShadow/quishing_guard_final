@@ -73,7 +73,13 @@ class _ColourFormatter(logging.Formatter):
         colour = self._COLOURS.get(record.levelname, "")
         prefix = f"{colour}[{record.levelname[0]}]{self._RESET}"
         ts     = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        return f"{prefix} {ts}  {record.module:<18}  {record.getMessage()}"
+        formatted_msg = f"{prefix} {ts}  {record.module:<18}  {record.getMessage()}"
+        
+        # 👈 Fixed: Re-attach the stack trace for local debugging
+        if record.exc_info:
+            formatted_msg += f"\n{self.formatException(record.exc_info)}"
+            
+        return formatted_msg
 
 
 def _build_logger() -> logging.Logger:
@@ -82,25 +88,38 @@ def _build_logger() -> logging.Logger:
         return logger
 
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-
-    # ── Console handler ──────────────────────────────────────
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(_ColourFormatter())
-    logger.addHandler(ch)
-
-    # ── Rotating file handler (JSON-lines) ───────────────────
-    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
-    fh = logging.handlers.RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=10 * 1024 * 1024,   # 10 MB per file
-        backupCount=5,
-        encoding="utf-8",
-    )
-    fh.setFormatter(_JsonFormatter())
-    logger.addHandler(fh)
-
+    
     # Don't propagate to the root logger (avoids duplicate output)
     logger.propagate = False
+
+    # Check if running in a cloud environment (e.g., Render)
+    is_cloud = os.environ.get("RENDER") == "true" or os.environ.get("LOG_JSON_STDOUT") == "1"
+
+    if is_cloud:
+        # ── Cloud Handler: Stream JSON straight to standard output ──
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setFormatter(_JsonFormatter())
+        logger.addHandler(ch)
+    else:
+        # ── Local Handler: Colored console + local file ──
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setFormatter(_ColourFormatter())
+        logger.addHandler(ch)
+
+        # ── Rotating file handler (JSON-lines) ───────────────────
+        log_dir = os.path.dirname(LOG_FILE)
+        if log_dir:  # 👈 Guard against empty directory strings
+            os.makedirs(log_dir, exist_ok=True)
+            
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_FILE,
+            maxBytes=10 * 1024 * 1024,   # 10 MB per file
+            backupCount=5,
+            encoding="utf-8",
+        )
+        fh.setFormatter(_JsonFormatter())
+        logger.addHandler(fh)
+
     return logger
 
 
