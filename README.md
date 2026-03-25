@@ -333,4 +333,4 @@ gcloud run deploy quishing-guard-api \
 
 ---
 
-*Arab Open University · TM471 · Student: Mohamed Abdelfattah Hamdy Mohamed · ID: 22510076*
+*Arab Open University · TM471 · Student: Mohamed Abdelfattah Hamdy .
