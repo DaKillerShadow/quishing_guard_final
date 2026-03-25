@@ -3,25 +3,11 @@ routes/admin.py — Admin Dashboard API
 =======================================
 All endpoints require a valid admin JWT:
   Authorization: Bearer <token>
-
-Endpoints:
-  GET  /api/v1/admin/dashboard          — summary stats + pending count
-  GET  /api/v1/admin/blocklist/pending  — submissions awaiting review
-  POST /api/v1/admin/blocklist/approve  — approve a queued entry (activates it)
-  POST /api/v1/admin/blocklist/reject   — reject + delete a queued entry
-  GET  /api/v1/admin/blocklist/all      — full blocklist (approved + pending)
-  DELETE /api/v1/admin/blocklist/<id>   — hard-delete any entry
-  GET  /api/v1/admin/scanlogs           — recent scan audit log
-
-Workflow for reported domains:
-  1. User calls POST /api/v1/report  → entry created with is_approved=False
-  2. Admin sees it in GET /pending
-  3. Admin calls POST /approve  → is_approved=True, domain is now active
-      OR  POST /reject          → entry deleted
 """
 from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify
+from sqlalchemy import func # Added for optimized grouping
 
 from ..database          import db
 from ..models.db_models  import BlocklistEntry, ScanLog
@@ -38,28 +24,28 @@ log = get_logger("admin")
 @bp.route("/dashboard", methods=["GET"])
 @admin_required
 def dashboard():
-    """Return KPIs for the admin overview page."""
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    """Return KPIs for the admin overview page with optimized trend querying."""
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    seven_days_ago = today_start - timedelta(days=7)
 
+    # 1. Global KPIs
     total_scans    = ScanLog.query.count()
-    scans_today    = ScanLog.query.filter(ScanLog.scanned_at >= today).count()
+    scans_today    = ScanLog.query.filter(ScanLog.scanned_at >= today_start).count()
     danger_scans   = ScanLog.query.filter_by(risk_label="danger").count()
     pending_count  = BlocklistEntry.query.filter_by(is_approved=False).count()
     approved_count = BlocklistEntry.query.filter_by(is_approved=True).count()
 
-    # Scans per day for the last 7 days (simple trend)
-    trend = []
-    for offset in range(6, -1, -1):
-        day_start = today - timedelta(days=offset)
-        day_end   = day_start + timedelta(days=1)
-        count = ScanLog.query.filter(
-            ScanLog.scanned_at >= day_start,
-            ScanLog.scanned_at < day_end,
-        ).count()
-        trend.append({
-            "date":  day_start.strftime("%Y-%m-%d"),
-            "count": count,
-        })
+    # 2. Optimized Trend: Fetches all 7 days in ONE database round-trip
+    trend_data = db.session.query(
+        func.date(ScanLog.scanned_at).label("day"),
+        func.count(ScanLog.id).label("count")
+    ).filter(ScanLog.scanned_at >= seven_days_ago)\
+     .group_by("day")\
+     .order_by("day")\
+     .all()
+
+    trend = [{"date": str(row.day), "count": row.count} for row in trend_data]
 
     return jsonify({
         "total_scans":    total_scans,
@@ -94,16 +80,15 @@ def all_blocklist():
 @bp.route("/blocklist/approve", methods=["POST"])
 @admin_required
 def approve_entry():
-    """
-    Approve a pending blocklist entry. Sets is_approved=True, making
-    the domain immediately active in all reputation checks.
-    """
+    """Approve a pending blocklist entry."""
     body = request.get_json(silent=True) or {}
-    entry_id = body.get("id")
-    if not entry_id:
-        return jsonify({"error": "Missing 'id'"}), 400
+    try:
+        # Cast to int to prevent type errors during lookup
+        entry_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Missing or invalid 'id'"}), 400
 
-    entry = BlocklistEntry.query.get(entry_id)
+    entry = db.session.get(BlocklistEntry, entry_id)
     if not entry:
         return jsonify({"error": "Entry not found"}), 404
 
@@ -121,11 +106,12 @@ def approve_entry():
 def reject_entry():
     """Delete a pending entry without activating it."""
     body = request.get_json(silent=True) or {}
-    entry_id = body.get("id")
-    if not entry_id:
-        return jsonify({"error": "Missing 'id'"}), 400
+    try:
+        entry_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Missing or invalid 'id'"}), 400
 
-    entry = BlocklistEntry.query.get(entry_id)
+    entry = db.session.get(BlocklistEntry, entry_id)
     if not entry:
         return jsonify({"error": "Entry not found"}), 404
 
@@ -141,8 +127,8 @@ def reject_entry():
 @bp.route("/blocklist/<int:entry_id>", methods=["DELETE"])
 @admin_required
 def delete_entry(entry_id: int):
-    """Hard-delete any blocklist entry (approved or pending)."""
-    entry = BlocklistEntry.query.get(entry_id)
+    """Hard-delete any blocklist entry."""
+    entry = db.session.get(BlocklistEntry, entry_id)
     if not entry:
         return jsonify({"error": "Entry not found"}), 404
 
@@ -161,28 +147,17 @@ def delete_entry(entry_id: int):
 def scan_logs():
     """
     Return the 100 most recent scan records.
-    Supports ?label=danger to filter by risk level.
+    Uses the Model's to_dict() method for cleaner code.
     """
     label = request.args.get("label")
     q     = ScanLog.query.order_by(ScanLog.scanned_at.desc())
+    
     if label in ("safe", "warning", "danger"):
         q = q.filter_by(risk_label=label)
+        
     rows = q.limit(100).all()
 
     return jsonify({
         "count": len(rows),
-        "logs": [
-            {
-                "id":           r.id,
-                "raw_url":      r.raw_url,
-                "resolved_url": r.resolved_url,
-                "risk_score":   r.risk_score,
-                "risk_label":   r.risk_label,
-                "top_threat":   r.top_threat,
-                "hop_count":    r.hop_count,
-                # client_ip intentionally omitted from list view
-                "scanned_at":   r.scanned_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            }
-            for r in rows
-        ],
+        "logs": [r.to_dict() for r in rows], # DRY: Using the model's to_dict method
     }), 200
