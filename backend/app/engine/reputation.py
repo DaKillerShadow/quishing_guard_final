@@ -14,7 +14,7 @@ _BUILTIN_ALLOWLIST: frozenset[str] = frozenset({
     "google.com", "googleapis.com", "goo.gl",
     "microsoft.com", "live.com", "outlook.com", "office.com",
     "apple.com", "icloud.com", "facebook.com", "instagram.com", 
-    "twitter.com", "x.com", "linkedin.com", "youtube.com", "tiktok.com",
+    "twitter.com", "x.com", "linkedin.com", "tiktok.com",
     "paypal.com", "stripe.com", "visa.com", "mastercard.com",
     "github.com", "gitlab.com", "amazon.com", "amazonaws.com",
     "cloudflare.com", "wise.com", "revolut.com",
@@ -34,12 +34,14 @@ _BUILTIN_BLOCKLIST: frozenset[str] = frozenset({
 def _get_etld1(url_or_hostname: str) -> str:
     """Standardized domain extraction using tldextract."""
     ext = tldextract.extract(url_or_hostname)
-    # 👈 Fixed: Prevents trailing dots for IPs or domains without suffixes
+    # Prevents trailing dots for IPs or domains without suffixes
     if ext.suffix:
         return f"{ext.domain}.{ext.suffix}".lower().strip()
     return ext.domain.lower().strip()
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+
 
 def is_allowlisted(url_or_hostname: str) -> bool:
     """Check if a domain is trusted via built-in list or DB."""
@@ -82,22 +84,22 @@ def add_to_blocklist(domain: str, reason: str = "user_report") -> None:
     except Exception as e:
         current_app.logger.error(f"DB Error adding to blocklist for {domain}: {e}")
 
-# ── [THE MISSING FUNCTION] ────────────────────────────────────────────────────
+# ── Seeding Logic ─────────────────────────────────────────────────────────────
 
 def seed_database() -> None:
     """
     Populates the database with built-in seeds if they don't exist.
-    Optimized to use bulk lookups instead of querying in a loop to prevent N+1 query bottlenecks.
+    Optimized to use bulk lookups instead of querying in a loop.
     """
     from ..models.db_models import BlocklistEntry, AllowlistEntry
     from ..database import db
 
     try:
-        # 1. Fetch all existing domains from the DB into memory using entities only for speed
+        # 1. Fetch all existing domains from the DB into memory
         existing_blocks = {entry.domain for entry in BlocklistEntry.query.with_entities(BlocklistEntry.domain).all()}
         existing_allows = {entry.domain for entry in AllowlistEntry.query.with_entities(AllowlistEntry.domain).all()}
 
-        # 2. Find what is missing using sets
+        # 2. Find missing entries using set subtraction
         missing_blocks = _BUILTIN_BLOCKLIST - existing_blocks
         missing_allows = _BUILTIN_ALLOWLIST - existing_allows
 
@@ -116,9 +118,7 @@ def seed_database() -> None:
         # 4. Commit once for the whole transaction
         if missing_blocks or missing_allows:
             db.session.commit()
+            
     except Exception as e:
-        # Fallback to standard logging if current_app isn't ready during boot
+        # We use print here as a fallback if the app logger isn't ready during boot
         print(f"DB Error seeding database: {e}")
-            db.session.commit()
-    except Exception as e:
-        current_app.logger.error(f"DB Error seeding database: {e}")
