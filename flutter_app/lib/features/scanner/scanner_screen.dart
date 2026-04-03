@@ -1,4 +1,4 @@
-// lib/features/scanner/scanner_screen.dart
+// lib/features//scanner/scanner_screen.dart
 import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
