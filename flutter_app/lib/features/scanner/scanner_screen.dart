@@ -1,5 +1,6 @@
 // lib/features/scanner/scanner_screen.dart
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -359,28 +360,33 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          Expanded(
+                          // Hide Gallery button if running on Vercel/Web
+                          if (!kIsWeb) ...[
+                            Expanded(
                               child: _CtrlBtn(
-                                  icon: '🖼',
-                                  label: 'Gallery',
-                                  onTap: ref
-                                      .read(scannerStateProvider.notifier)
-                                      .scanFromGallery)),
+                                icon: '🖼',
+                                label: 'Gallery',
+                                onTap: ref.read(scannerStateProvider.notifier).scanFromGallery,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          Expanded(
+                            child: _CtrlBtn(
+                              icon: '📋',
+                              label: 'History',
+                              onTap: () => context.push('/history'),
+                            ),
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
-                              child: _CtrlBtn(
-                                  icon: '📋',
-                                  label: 'History',
-                                  onTap: () => context.push('/history'))),
-                          const SizedBox(width: 10),
-                          Expanded(
-                              child: _CtrlBtn(
-                                  icon: '▶',
-                                  label: 'Demo',
-                                  onTap: ref
-                                      .read(scannerStateProvider.notifier)
-                                      .runDemo,
-                                  highlight: true)),
+                            child: _CtrlBtn(
+                              icon: '▶',
+                              label: 'Demo',
+                              onTap: ref.read(scannerStateProvider.notifier).runDemo,
+                              highlight: true,
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
