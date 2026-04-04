@@ -14,7 +14,7 @@ Unlike commercial scanners that silently allow or block URLs via cloud blocklist
 
 | Property | Detail |
 |---|---|
-| **Cross-Platform** | Runs natively on Android/iOS via Flutter, and on the Web via Vercel. |
+| **Cross-Platform** | Runs natively on Android via Flutter, and on ios using the Web via Vercel. |
 | **Explainable** | Every risk point is traceable to 10 specific, documented heuristic checks. |
 | **Zero-day aware** | Shannon Entropy ($H = -\sum p \log_2 p$) detects DGA domains without needing a blocklist entry. |
 | **Educational** | Context-specific micro-lessons trigger at the moment of threat detection. |
