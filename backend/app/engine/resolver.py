@@ -7,12 +7,8 @@ Follows redirect chains under strict safety constraints (§3.1.2):
   • Per-hop timeout (default 5 s) — ensures <2 s total UX target
   • HEAD-first, GET fallback — minimises bandwidth & server interaction
   • SSRF guard — blocks private/loopback/link-local address space
+  • HTML Evasion Scraper — safely reads first 50KB for meta-refresh
   • No cookie persistence — prevents session-based fingerprinting
-
-The resolver deliberately does NOT load page content; it only follows
-the redirect chain to determine the final destination. This means the
-user's browser is never exposed to potentially malicious content during
-the analysis phase.
 """
 
 from __future__ import annotations
@@ -21,6 +17,9 @@ import ipaddress
 import requests
 import urllib.parse
 import functools
+import re
+import tldextract
+from bs4 import BeautifulSoup
 from dataclasses import dataclass, field
 from typing import Optional
 import random as _random
@@ -29,15 +28,19 @@ import random as _random
 MAX_HOPS        = 10
 PER_HOP_TIMEOUT = 5       # seconds
 
+KNOWN_SHORTENERS = frozenset({
+    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "rebrand.ly",
+    "shorturl.at", "rb.gy", "cutt.ly", "is.gd", "buff.ly", "ift.tt",
+    "tiny.cc", "lnkd.in", "fb.me", "amzn.to", "adf.ly", "linktr.ee", 
+    "lnk.to", "snip.ly", "short.io", "bl.ink", "clck.ru", "qr.ae", 
+    "qrco.de", "url.ie", "v.gd", "x.co", "zi.ma",
+})
+
 # ── User-Agent rotation ───────────────────────────────────────────────────────
 _MOBILE_USER_AGENTS = [
-    # Android Chrome
     "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-    # iPhone Safari
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-    # Samsung Internet
     "Mozilla/5.0 (Linux; Android 13; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile/15E148",
-    # Android Chrome on Pixel
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36",
 ]
 
@@ -62,6 +65,8 @@ class ResolverResult:
     resolved_url: str
     redirect_chain: list[str] = field(default_factory=list)
     hop_count: int = 0
+    shortener_count: int = 0
+    meta_refresh_found: bool = False
     hit_limit: bool = False
     error: Optional[str] = None
     status_code: Optional[int] = None
@@ -108,7 +113,8 @@ def _normalise(url: str) -> str:
 
 def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEOUT) -> ResolverResult:
     """
-    Safely follow a URL's redirect chain to its final destination.
+    Safely follow a URL's redirect chain to its final destination, 
+    counting shorteners and checking for meta-refreshes along the way.
     """
     try:
         url = _normalise(raw_url)
@@ -117,6 +123,8 @@ def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEO
 
     chain: list[str] = []
     current = url
+    shortener_count = 0
+    meta_refresh_found = False
 
     for hop in range(max_hops + 1):
         # 1. SSRF GUARD: Parse the exact hostname being requested
@@ -129,22 +137,33 @@ def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEO
                 resolved_url=current,
                 redirect_chain=chain,
                 hop_count=hop,
+                shortener_count=shortener_count,
+                meta_refresh_found=meta_refresh_found,
                 error=f"SSRF Alert: host '{host}' resolves to a private address",
             )
 
-        # 2. HTTP REQUEST: Using 'requests' for cleaner handling
+        # Count if this hop is a shortener
+        ext = tldextract.extract(current)
+        domain = f"{ext.domain}.{ext.suffix}".lower()
+        if domain in KNOWN_SHORTENERS:
+            shortener_count += 1
+
+        # 2. HTTP REQUEST: HEAD-first, GET fallback
         try:
-            resp = requests.head(
-                current,
-                headers={"User-Agent": _get_user_agent()},
-                allow_redirects=False,  # We handle redirects manually to record the chain
-                timeout=timeout
-            )
+            headers = {"User-Agent": _get_user_agent()}
+            resp = requests.head(current, headers=headers, allow_redirects=False, timeout=timeout)
+            
+            used_get = False
+            # Fallback to GET if HEAD is rejected or hides the redirect
+            if resp.status_code == 405 or (resp.status_code == 200 and "Location" not in resp.headers):
+                resp = requests.get(current, headers=headers, allow_redirects=False, timeout=timeout, stream=True)
+                used_get = True
+
             status = resp.status_code
             location = resp.headers.get("Location", "")
             chain.append(current)
 
-            # 3. REDIRECT HANDLING
+            # 3. REDIRECT HANDLING (HTTP 3xx)
             if status in (301, 302, 303, 307, 308) and location:
                 next_url = urllib.parse.urljoin(current, location)
                 current = next_url
@@ -156,17 +175,41 @@ def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEO
                         resolved_url=next_url,
                         redirect_chain=chain,
                         hop_count=hop + 1,
+                        shortener_count=shortener_count,
+                        meta_refresh_found=meta_refresh_found,
                         hit_limit=True,
                         status_code=status,
                     )
                 continue
 
-            # Not a redirect — we found the final URL!
+            # 4. HTML EVASION (META-REFRESH) HANDLING
+            if status == 200:
+                if not used_get:
+                    # We need the body to check for HTML tags
+                    resp = requests.get(current, headers=headers, allow_redirects=False, timeout=timeout, stream=True)
+                
+                # Safely read only the first 50KB of the response
+                chunk = resp.raw.read(50000, decode_content=True)
+                soup = BeautifulSoup(chunk, 'html.parser')
+                meta_tag = soup.find('meta', attrs={'http-equiv': re.compile(r'refresh', re.I)})
+                
+                if meta_tag:
+                    meta_refresh_found = True
+                    content = meta_tag.get('content', '')
+                    if 'url=' in content.lower():
+                        # Extract the hidden URL and follow it on the next loop iteration
+                        next_url = content.lower().split('url=')[1].strip(' "\'')
+                        current = urllib.parse.urljoin(current, next_url)
+                        continue
+
+            # Not a redirect and no meta-refresh — we found the final URL!
             return ResolverResult(
                 original_url=raw_url,
                 resolved_url=current,
                 redirect_chain=chain,
                 hop_count=hop,
+                shortener_count=shortener_count,
+                meta_refresh_found=meta_refresh_found,
                 status_code=status,
             )
 
@@ -178,10 +221,11 @@ def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEO
                 resolved_url=current,
                 redirect_chain=chain,
                 hop_count=hop,
+                shortener_count=shortener_count,
+                meta_refresh_found=meta_refresh_found,
                 error=str(exc),
             )
 
-    # Fallback (Should rarely reach here due to hit_limit above)
     return ResolverResult(
         original_url=raw_url, resolved_url=current, redirect_chain=chain, hop_count=max_hops, hit_limit=True
     )
