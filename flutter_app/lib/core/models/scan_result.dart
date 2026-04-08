@@ -1,7 +1,6 @@
 import 'package:uuid/uuid.dart';
 
 // ── SecurityCheck ────────────────────────────────────────────────────────────
-
 class SecurityCheck {
   const SecurityCheck({
     required this.name,
@@ -14,25 +13,24 @@ class SecurityCheck {
     this.detail,
   });
 
-  final String name; // Machine key (e.g., 'ip_literal')
-  final String label; // Human title (e.g., 'IP Address Literal')
-  final String status; // "SAFE", "WARNING", "DANGER"
-  final bool triggered; // Derived from score/logic
-  final int score; // Points contributed
-  final String message; // The finding explanation
-  final String metric; // Technical data (e.g., 'Entropy: 3.32 bits')
-  final String? detail; // Optional extended information
+  final String name;
+  final String label;
+  final String status;
+  final bool triggered;
+  final int score;
+  final String message;
+  final String metric;
+  final String? detail;
+
+  // Compatibility getter for the Lesson UI
+  bool get isThreat => triggered || status == 'DANGER' || status == 'WARNING';
 
   factory SecurityCheck.fromJson(Map<String, dynamic> j) => SecurityCheck(
         name: j['name']?.toString() ?? '',
-        // Fallback to name if label is missing
-        label:
-            j['label']?.toString() ?? j['name']?.toString() ?? 'Unknown Check',
+        label: j['label']?.toString() ?? j['name']?.toString() ?? 'Unknown Check',
         status: j['status']?.toString() ?? 'SAFE',
-        // If 'status' is not SAFE, or if explicitly passed, mark as triggered
         triggered: j['triggered'] as bool? ?? (j['status'] != 'SAFE'),
         score: (j['score'] as num?)?.toInt() ?? 0,
-        // Accept either 'message' (new backend) or 'description' (old backend)
         message: j['message']?.toString() ?? j['description']?.toString() ?? '',
         metric: j['metric']?.toString() ?? '',
         detail: j['detail']?.toString(),
@@ -51,7 +49,6 @@ class SecurityCheck {
 }
 
 // ── ScanResult ───────────────────────────────────────────────────────────────
-
 class ScanResult {
   ScanResult({
     required this.id,
@@ -71,10 +68,10 @@ class ScanResult {
   });
 
   final String id;
-  final String url; // Maps to either 'url' or 'raw_url' from backend
+  final String url;
   final String resolvedUrl;
   final int riskScore;
-  final String riskLabel; // 'safe' | 'warning' | 'danger'
+  final String riskLabel;
   final List<SecurityCheck> checks;
   final List<String> redirectChain;
   final int hopCount;
@@ -85,18 +82,65 @@ class ScanResult {
   final bool isBlocklisted;
   bool reported;
 
-  // Convenience getters for UI logic
+  // UI Helpers
   bool get isSafe => riskScore < 30;
   bool get isWarning => riskScore >= 30 && riskScore < 70;
   bool get isDanger => riskScore >= 70;
 
+  // FIXED: Getter for MicroLessonScreen
+  SecurityCheck? get worstCheck {
+    if (checks.isEmpty) return null;
+    return checks.firstWhere((c) => c.status == 'DANGER', 
+           orElse: () => checks.firstWhere((c) => c.isThreat, 
+           orElse: () => checks.first));
+  }
+
   String get displayHost {
     try {
-      return Uri.parse(resolvedUrl).host.replaceFirst('www.', '');
+      return Uri.parse(resolvedUrl.isEmpty ? url : resolvedUrl).host.replaceFirst('www.', '');
     } catch (_) {
-      return resolvedUrl.length > 40
-          ? '${resolvedUrl.substring(0, 40)}…'
-          : resolvedUrl;
+      return url;
+    }
+  }
+
+  factory ScanResult.fromJson(Map<String, dynamic> j) {
+    return ScanResult(
+      id: j['id']?.toString() ?? const Uuid().v4(),
+      url: j['url']?.toString() ?? j['raw_url']?.toString() ?? '',
+      resolvedUrl: j['resolved_url']?.toString() ?? '',
+      riskScore: (j['risk_score'] as num?)?.toInt() ?? 0,
+      riskLabel: j['risk_label']?.toString() ?? 'safe',
+      topThreat: j['top_threat']?.toString(),
+      isAllowlisted: j['is_allowlisted'] == true,
+      isBlocklisted: j['is_blocklisted'] == true,
+      hopCount: (j['hop_count'] as num?)?.toInt() ?? 0,
+      overallAssessment: j['overall_assessment']?.toString() ?? '',
+      scannedAt: j['analysed_at'] != null
+          ? DateTime.tryParse(j['analysed_at'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      redirectChain: (j['redirect_chain'] as List?)?.map((e) => e.toString()).toList() ?? [],
+      checks: (j['checks'] as List?)?.map((e) => SecurityCheck.fromJson(e)).toList() ?? [],
+      reported: j['reported'] == true,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'url': url,
+        'resolved_url': resolvedUrl,
+        'risk_score': riskScore,
+        'risk_label': riskLabel,
+        'top_threat': topThreat,
+        'is_allowlisted': isAllowlisted,
+        'is_blocklisted': isBlocklisted,
+        'hop_count': hopCount,
+        'overall_assessment': overallAssessment,
+        'analysed_at': scannedAt.toIso8601String(),
+        'redirect_chain': redirectChain,
+        'checks': checks.map((c) => c.toJson()).toList(),
+        'reported': reported,
+      };
+}
     }
   }
 
