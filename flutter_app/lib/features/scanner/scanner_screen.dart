@@ -2,6 +2,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -10,9 +11,9 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
 import '../../core/utils/api_exception.dart';
-import '../../core/utils/app_constants.dart'; // ✅ Added missing import
+import '../../core/utils/app_constants.dart'; 
 import '../../shared/theme/app_theme.dart';
-import '../../shared/widgets/scan_overlay.dart' hide QGLoader;
+import '../../shared/widgets/scan_overlay.dart'; // Just remove the 'hide QGLoader' part
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/security_error_widget.dart';
 
@@ -71,6 +72,11 @@ class ScannerController extends StateNotifier<ScannerState> {
     'http://185.220.101.52/secure/login',
   ];
   int _demoIdx = 0;
+
+  // ✅ Added: Public method to update torch state safely
+  void setTorch(bool isOn) {
+    state = state.copyWith(torchOn: isOn);
+  }
 
   void onDetect(BarcodeCapture capture) {
     final barcode = capture.barcodes.firstOrNull;
@@ -247,7 +253,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. The Camera Feed
           Positioned.fill(
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(
@@ -261,15 +266,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
             ),
           ),
 
-          // 2. Scanning Frame Overlay
           const Positioned.fill(child: ScanOverlay()),
 
-          // 3. Top Navigation & Tagline
           if (!hasError)
             SafeArea(
               child: Column(
                 children: [
-                  // Top Bar
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Row(
@@ -287,8 +289,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           active: scanState.torchOn,
                           onTap: () async {
                             await _cam.toggleTorch();
-                            ref.read(scannerStateProvider.notifier).state =
-                                scanState.copyWith(torchOn: !scanState.torchOn);
+                            // ✅ Fixed: Calling controller method instead of setting state directly
+                            ref.read(scannerStateProvider.notifier).setTorch(!scanState.torchOn);
                           },
                         ),
                         const SizedBox(width: 8),
@@ -299,18 +301,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                     ),
                   ),
                   
-                  // ✅ DYNAMIC TAGLINE INTEGRATION
                   const SizedBox(height: 8),
                   Text(
-                    AppConstants.tagline, // "Scan Before You Land"
+                    AppConstants.tagline, 
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w300,
                       letterSpacing: 1.5,
-                      color: AppColors.textColor.withOpacity(0.6),
+                      color: AppColors.textColor.withValues(alpha: 0.6), // ✅ Fixed Deprecation
                       fontStyle: FontStyle.italic,
                       shadows: [
-                        Shadow(blurRadius: 8, color: Colors.black.withOpacity(0.8))
+                        Shadow(blurRadius: 8, color: Colors.black.withValues(alpha: 0.8)) // ✅ Fixed Deprecation
                       ],
                     ),
                   ),
@@ -318,7 +319,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               ),
             ),
 
-          // 4. Bottom Control HUD
           if (!hasError)
             Positioned(
               left: 0,
@@ -333,18 +333,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       end: Alignment.topCenter,
                       colors: [
                         AppColors.void_bg,
-                        AppColors.void_bg.withOpacity(0)
+                        AppColors.void_bg.withValues(alpha: 0) // ✅ Fixed Deprecation
                       ],
                     ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Status Label
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppColors.panel.withOpacity(.9),
+                          color: AppColors.panel.withValues(alpha: .9), // ✅ Fixed Deprecation
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: AppColors.rim),
                         ),
@@ -363,19 +362,39 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       ),
                       const SizedBox(height: 14),
                       
-                      // Primary Actions
                       Row(
                         children: [
-                          Expanded(child: _CtrlBtn(icon: '🖼', label: 'Gallery', onTap: ref.read(scannerStateProvider.notifier).scanFromGallery)),
+                          if (!kIsWeb) ...[
+                            Expanded(
+                              child: _CtrlBtn(
+                                icon: '🖼', 
+                                label: 'Gallery', 
+                                onTap: ref.read(scannerStateProvider.notifier).scanFromGallery,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          Expanded(
+                            child: _CtrlBtn(
+                              icon: '📋', 
+                              label: 'History', 
+                              onTap: () => context.push('/history'),
+                            ),
+                          ),
                           const SizedBox(width: 10),
-                          Expanded(child: _CtrlBtn(icon: '📋', label: 'History', onTap: () => context.push('/history'))),
-                          const SizedBox(width: 10),
-                          Expanded(child: _CtrlBtn(icon: '▶', label: 'Demo', onTap: ref.read(scannerStateProvider.notifier).runDemo, highlight: true)),
+                          Expanded(
+                            child: _CtrlBtn(
+                              icon: '▶', 
+                              label: 'Demo', 
+                              onTap: ref.read(scannerStateProvider.notifier).runDemo, 
+                              highlight: true,
+                            ),
+                          ),
                         ],
                       ),
+
                       const SizedBox(height: 16),
 
-                      // Professional Signature
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
@@ -385,13 +404,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
-                                '<\\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
+                                '<\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
                                 textAlign: TextAlign.center,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontFamily: 'monospace',
                                   fontSize: 9,
-                                  color: AppColors.muted.withOpacity(0.7),
+                                  color: AppColors.muted.withValues(alpha: 0.7), // ✅ Fixed Deprecation
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -405,7 +424,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               ),
             ),
 
-          // 5. Global Loaders & Errors
           if (isLoading) Positioned.fill(child: const QGLoader()),
           if (hasError)
             Positioned.fill(
@@ -452,9 +470,9 @@ class _TopChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-            color: color.withOpacity(.1),
+            color: color.withValues(alpha: .1), // ✅ Fixed Deprecation
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withOpacity(.3))),
+            border: Border.all(color: color.withValues(alpha: .3))), // ✅ Fixed Deprecation
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(icon, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
@@ -474,9 +492,9 @@ class _IconBtn extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-              color: active ? AppColors.amber.withOpacity(.15) : AppColors.panel.withOpacity(.8),
+              color: active ? AppColors.amber.withValues(alpha: .15) : AppColors.panel.withValues(alpha: .8), // ✅ Fixed Deprecation
               shape: BoxShape.circle,
-              border: Border.all(color: active ? AppColors.amber.withOpacity(.4) : AppColors.rim)),
+              border: Border.all(color: active ? AppColors.amber.withValues(alpha: .4) : AppColors.rim)), // ✅ Fixed Deprecation
           child: Icon(icon, size: 18, color: active ? AppColors.amber : AppColors.muted),
         ),
       );
@@ -493,9 +511,9 @@ class _CtrlBtn extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-              color: highlight ? AppColors.arc.withOpacity(.1) : AppColors.panel.withOpacity(.9),
+              color: highlight ? AppColors.arc.withValues(alpha: .1) : AppColors.panel.withValues(alpha: .9), // ✅ Fixed Deprecation
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: highlight ? AppColors.arc.withOpacity(.35) : AppColors.rim)),
+              border: Border.all(color: highlight ? AppColors.arc.withValues(alpha: .35) : AppColors.rim)), // ✅ Fixed Deprecation
           child: Column(children: [
             Text(icon, style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 4),
