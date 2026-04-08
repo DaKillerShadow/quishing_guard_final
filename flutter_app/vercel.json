@@ -1,9 +1,0 @@
-{
-  "framework": null,
-  "buildCommand": "bash vercel-build.sh",
-  "outputDirectory": "build/web",
-  "installCommand": "echo 'Skipping install...'",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
