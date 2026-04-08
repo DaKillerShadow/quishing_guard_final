@@ -25,12 +25,13 @@ from __future__ import annotations
 import math
 import re
 import idna
-import requests
 import ipaddress
 import tldextract
-from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+
+# Import your dedicated modules
 from app.engine.entropy import dga_score
+from app.engine.resolver import resolve
 
 # ── 1. Configuration & Regional Threat Intel ──────────────────────────────────
 
@@ -90,60 +91,9 @@ _CRITICAL_OVERRIDE_FLOORS = {
     "dga_entropy":  62,
     "nested_short": 65,
     "blocklist":    100,
-    # BUG FIX: Removed url_shortener override so 15 pts stays 15 pts in the UI.
 }
 
 # ── 3. Helper Functions ───────────────────────────────────────────────────────
-def trace_redirects(start_url: str) -> dict:
-    tracker_results = {
-        "hop_count": 0,
-        "shortener_count": 0,
-        "final_url": start_url,
-        "meta_refresh_found": False,
-        "redirect_chain": []
-    }
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
-        'Accept-Language': 'en-US,en;q=0.9',
-    }
-    
-    try:
-        # stream=True prevents downloading massive payloads into RAM
-        response = requests.get(
-            start_url, 
-            headers=headers, 
-            allow_redirects=True, 
-            timeout=10,
-            verify=True,
-            stream=True
-        )
-        
-        tracker_results["hop_count"] = len(response.history)
-        tracker_results["final_url"] = response.url
-        
-        for resp in response.history:
-            tracker_results["redirect_chain"].append(resp.url)
-            ext = tldextract.extract(resp.url)
-            domain = f"{ext.domain}.{ext.suffix}"
-            if domain in KNOWN_SHORTENERS:
-                tracker_results["shortener_count"] += 1
-                
-        # Read only the first 50KB for meta-refresh checking
-        chunk = response.raw.read(50000, decode_content=True)
-        soup = BeautifulSoup(chunk, 'html.parser')
-        meta_refresh = soup.find('meta', attrs={'http-equiv': re.compile(r'refresh', re.I)})
-        
-        if meta_refresh:
-            tracker_results["meta_refresh_found"] = True
-            content = meta_refresh.get('content', '')
-            if 'url=' in content.lower():
-                tracker_results["final_url"] = content.lower().split('url=')[1].strip(' "\'')
-            
-    except requests.exceptions.RequestException:
-        pass 
-        
-    return tracker_results
 
 def is_short_dga(domain_string: str) -> bool:
     """Secondary check for short DGA domains (e.g. x7z9q2mwpb) that bypass entropy limitations."""
@@ -159,24 +109,26 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     Evaluates the URL and generates a professional Security Analysis Report.
     Synchronized with Flutter 'SecurityCheck' model fields.
     """
-    # BUG FIX: Ensure checks list is reset per API request to prevent score accumulation
     checks = []
     
     # --- PHASE 1: THE UNROLLER ---
-    trace_data = trace_redirects(url)
-    target_url = trace_data["final_url"]
-    chain = trace_data["redirect_chain"]
-    total_hops = trace_data["hop_count"]
+    # Call the external resolver microservice
+    trace_data = resolve(url)
+    
+    # Extract data using the dataclass dot-notation
+    target_url = trace_data.resolved_url
+    chain = trace_data.redirect_chain
+    total_hops = trace_data.hop_count
 
-    is_nested = trace_data["shortener_count"] >= 2
+    is_nested = trace_data.shortener_count >= 2
     checks.append({
         "name": "nested_short", "label": "Nested Shorteners",
         "status": "UNSAFE" if is_nested else "SAFE",
         "message": "Multiple URL shorteners detected in a single chain." if is_nested else "No deceptive shortener nesting. ✓",
-        "metric": f"Shorteners: {trace_data['shortener_count']}", "score": 40 if is_nested else 0, "triggered": is_nested
+        "metric": f"Shorteners: {trace_data.shortener_count}", "score": 40 if is_nested else 0, "triggered": is_nested
     })
 
-    is_meta_refresh = trace_data["meta_refresh_found"]
+    is_meta_refresh = trace_data.meta_refresh_found
     checks.append({
         "name": "html_evasion", "label": "HTML Evasion",
         "status": "UNSAFE" if is_meta_refresh else "SAFE",
@@ -234,7 +186,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_PUNYCODE if is_puny else 0, "triggered": is_puny
     })
 
-    # 3. DGA Entropy Analysis (Patched with Short-DGA Consonant Trap)
+    # 3. DGA Entropy Analysis
     entropy_result = dga_score(domain)
     is_dga_threat = entropy_result.is_dga or is_short_dga(domain)
     checks.append({
@@ -282,7 +234,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_HTTPS if is_not_https else 0, "triggered": is_not_https
     })
 
-    # 8. Path & Subdomain Keyword Analysis (BUG FIX: Scans subdomain + path together)
+    # 8. Path & Subdomain Keyword Analysis 
     scan_target = f"{subdomain.lower()}/{parsed.path.lower()}"
     matched_kws = [kw for kw in _PHISHING_PATH_KEYWORDS if kw in scan_target]
     path_hit = len(matched_kws) >= 1
@@ -351,4 +303,3 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "hop_count": total_hops,
         "overall_assessment": assessment_text
     }
-
