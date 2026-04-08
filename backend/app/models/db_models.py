@@ -40,6 +40,7 @@ class BlocklistEntry(db.Model):
     domain      = db.Column(db.String(255), unique=True, nullable=False, index=True)
     reason      = db.Column(db.String(500), default="user_report")
     added_by    = db.Column(db.String(100), default="user")   # "user"|"admin"|"seed"
+    reporter_ip = db.Column(db.String(45))                    # BUG FIX: Added to track abuse
     is_approved = db.Column(db.Boolean, default=False, nullable=False, index=True)
     added_at    = db.Column(
         db.DateTime(timezone=True),
@@ -56,6 +57,7 @@ class BlocklistEntry(db.Model):
             "domain":      self.domain,
             "reason":      self.reason,
             "added_by":    self.added_by,
+            "reporter_ip": self.reporter_ip,
             "is_approved": self.is_approved,
             "added_at":    self.added_at.strftime("%Y-%m-%dT%H:%M:%SZ") if self.added_at else None,
         }
@@ -97,7 +99,6 @@ class ScanLog(db.Model):
     """
     __tablename__ = "scan_logs"
 
-    # Fixed: Added secure default generator for string primary key
     id           = db.Column(db.String(16), primary_key=True, default=generate_scan_id)
     raw_url      = db.Column(db.Text, nullable=False)
     resolved_url = db.Column(db.Text)
@@ -127,3 +128,4 @@ class ScanLog(db.Model):
             "hop_count":    self.hop_count,
             "scanned_at":   self.scanned_at.strftime("%Y-%m-%dT%H:%M:%SZ") if self.scanned_at else None,
         }
+
