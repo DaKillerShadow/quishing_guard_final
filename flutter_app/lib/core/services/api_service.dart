@@ -21,7 +21,6 @@ final apiServiceProvider = Provider<ApiService>((ref) {
   ));
 
   // --- Auth Interceptor ---
-  // Automatically attaches the JWT to admin requests if it exists in storage
   dio.interceptors.add(InterceptorsWrapper(
     onRequest: (options, handler) async {
       if (options.path.contains('/admin')) {
@@ -49,12 +48,17 @@ class ApiService {
 
   // ── Public Endpoints ──────────────────────────────────────────────────────
 
+  Future<void> isHealthy() async {
+    try {
+      await _dio.get('/health');
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Future<ScanResult> analyseUrl(String rawPayload) async {
     try {
-      final response = await _dio.post('/api/v1/analyse', data: {
-        'url': rawPayload,
-        // client_scan_id removed as server handles ID generation
-      });
+      final response = await _dio.post('/api/v1/analyse', data: {'url': rawPayload});
       return ScanResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw _map(e);
@@ -82,14 +86,19 @@ class ApiService {
     }
   }
 
-  // ── Admin Endpoints (Updated for Pagination & Correct Paths) ────────────────
+  Future<void> reportPhishing({required String url, required String category}) async {
+    try {
+      await _dio.post('/api/v1/report', data: {'url': url, 'category': category});
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
+  // ── Admin Endpoints ──────────────────────────────────────────────────────
 
   Future<String?> adminLogin(String username, String password) async {
     try {
-      final r = await _dio.post('/api/v1/auth/login', data: {
-        'username': username,
-        'password': password,
-      });
+      final r = await _dio.post('/api/v1/auth/login', data: {'username': username, 'password': password});
       final token = r.data['token'] as String?;
       if (token != null) {
         final prefs = await SharedPreferences.getInstance();
@@ -101,10 +110,22 @@ class ApiService {
     }
   }
 
-  /// Fetches paginated scan logs
+  Future<void> adminLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('admin_token');
+  }
+
+  Future<Map<String, dynamic>> adminDashboard() async {
+    try {
+      final response = await _dio.get('/api/v1/admin/dashboard');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Future<Map<String, dynamic>> adminScanLogs({int page = 1}) async {
     try {
-      // BUG FIX: Corrected path from /logs to /scanlogs
       final response = await _dio.get('/api/v1/admin/scanlogs', queryParameters: {'page': page});
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
@@ -112,27 +133,33 @@ class ApiService {
     }
   }
 
-  /// Fetches paginated pending reports
-  Future<Map<String, dynamic>> adminPendingReports({int page = 1}) async {
+  /// Fixed: Now returns List<Map> instead of Map to satisfy AdminScreen
+  Future<List<Map<String, dynamic>>> adminPendingReports({int page = 1}) async {
     try {
       final r = await _dio.get('/api/v1/admin/blocklist/pending', queryParameters: {'page': page});
-      return r.data as Map<String, dynamic>;
+      final list = r.data['reports'] as List? ?? [];
+      return list.map((e) => e as Map<String, dynamic>).toList();
     } on DioException catch (e) {
       throw _map(e);
     }
   }
 
-  // ... (Other methods like reportPhishing and isHealthy stay the same)
+  Future<void> adminApprove(int id) async => await _dio.post('/api/v1/admin/approve/$id');
+  Future<void> adminReject(int id) async => await _dio.post('/api/v1/admin/reject/$id');
+
+  // ── Configuration & Local State ───────────────────────────────────────────
+
+  void updateBaseUrl(String newUrl) {
+    _dio.options.baseUrl = newUrl;
+  }
+
+  Future<void> loadSavedToken() async {
+    // This exists to satisfy the UI call. 
+    // The actual token logic is handled by the Interceptor above.
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('admin_token');
+    if (token == null) return;
+  }
 
   ApiException _map(DioException e) => switch (e.type) {
         DioExceptionType.connectionTimeout ||
-        DioExceptionType.sendTimeout ||
-        DioExceptionType.receiveTimeout =>
-          ApiException('Request timed out. Please check your internet.', statusCode: 408, type: ApiErrorType.timeout),
-        DioExceptionType.badResponse => ApiException(
-            (e.response?.data as Map?)?['error'] as String? ?? 'Server error',
-            statusCode: e.response?.statusCode ?? 0,
-            type: ApiErrorType.server),
-        _ => ApiException(e.message ?? 'Unknown error', statusCode: 0, type: ApiErrorType.unknown),
-      };
-}
