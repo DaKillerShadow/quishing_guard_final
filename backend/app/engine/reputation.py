@@ -1,15 +1,22 @@
 """
-reputation.py — Reputation & List Management Engine
-===================================================
-Handles domain-level trust and threat intelligence. 
-Replaces flat JSON files with SQLAlchemy-backed lookups.
+reputation.py — Integrated Reputation & Trust Engine (v2.1.0)
+===========================================================
+Handles multi-tier domain trust verification. 
+Combines high-performance Tranco Top 1M lookups with 
+dynamic SQLAlchemy-backed community lists.
 """
 
 from __future__ import annotations
+import csv
+import os
 import tldextract
 from flask import current_app
 
-# ── Built-in seed lists ───────────────────────────────────────────────────────
+# ── 1. Global Memory Stores ───────────────────────────────────────────────────
+
+# High-performance set for O(1) lookups of the Tranco list
+_TRUSTED_DOMAINS: set[str] = set()
+
 _BUILTIN_ALLOWLIST: frozenset[str] = frozenset({
     "google.com", "googleapis.com", "goo.gl",
     "microsoft.com", "live.com", "outlook.com", "office.com",
@@ -29,25 +36,59 @@ _BUILTIN_BLOCKLIST: frozenset[str] = frozenset({
     "arnazon.com",          # typosquat
 })
 
-# ── Extraction Helper ─────────────────────────────────────────────────────────
+# ── 2. Data Loading (Tranco Tier) ─────────────────────────────────────────────
+
+def load_reputation_data():
+    """Loads the Tranco list into memory on startup for the 'Trust Buffer'."""
+    global _TRUSTED_DOMAINS
+    # Standard path within the project structure
+    data_path = os.path.join(os.getcwd(), 'app', 'data', 'tranco_top_100k.csv')
+    
+    try:
+        if not os.path.exists(data_path):
+            current_app.logger.warning(f"⚠️ Reputation file missing at {data_path}. Skipping Tranco load.")
+            return
+
+        with open(data_path, mode='r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                # Format: Rank, Domain
+                if len(row) >= 2:
+                    _TRUSTED_DOMAINS.add(row[1].lower().strip())
+        
+        current_app.logger.info(f"✅ Reputation Engine: Loaded {len(_TRUSTED_DOMAINS)} domains into Trust Tier.")
+    except Exception as e:
+        current_app.logger.error(f"❌ Failed to load reputation list: {e}")
+
+# ── 3. Extraction & Normalization ─────────────────────────────────────────────
 
 def _get_etld1(url_or_hostname: str) -> str:
     """Standardized domain extraction using tldextract."""
     ext = tldextract.extract(url_or_hostname)
-    # Prevents trailing dots for IPs or domains without suffixes
     if ext.suffix:
         return f"{ext.domain}.{ext.suffix}".lower().strip()
     return ext.domain.lower().strip()
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── 4. Public API (Trust & Threat Checks) ─────────────────────────────────────
+
+def is_highly_trusted(url_or_hostname: str) -> bool:
+    """Checks if a domain has high global reputation via Tranco."""
+    domain = _get_etld1(url_or_hostname)
+    return domain in _TRUSTED_DOMAINS
 
 def is_allowlisted(url_or_hostname: str) -> bool:
-    """Check if a domain is trusted via built-in list or DB."""
+    """Multi-tier trust check: Tranco -> Built-in -> Database."""
     domain = _get_etld1(url_or_hostname)
-    # Check built-in list
+    
+    # Tier 1: Global Reputation
+    if domain in _TRUSTED_DOMAINS:
+        return True
+    
+    # Tier 2: Built-in Seeds
     if domain in _BUILTIN_ALLOWLIST:
         return True
-    # Check DB
+    
+    # Tier 3: Database Overrides
     try:
         from ..models.db_models import AllowlistEntry
         return AllowlistEntry.query.filter_by(domain=domain).first() is not None
@@ -58,16 +99,18 @@ def is_allowlisted(url_or_hostname: str) -> bool:
 def is_blocklisted(url_or_hostname: str) -> bool:
     """Check if a domain is malicious via built-in list or DB."""
     domain = _get_etld1(url_or_hostname)
-    # Check built-in list
+    
     if domain in _BUILTIN_BLOCKLIST:
         return True
-    # Check DB
+        
     try:
         from ..models.db_models import BlocklistEntry
         return BlocklistEntry.query.filter_by(domain=domain, is_approved=True).first() is not None
     except Exception as e:
         current_app.logger.error(f"DB Error checking blocklist for {domain}: {e}")
         return False
+
+# ── 5. List Management ────────────────────────────────────────────────────────
 
 def add_to_blocklist(domain: str, reason: str = "user_report", reporter_ip: str | None = None) -> None:
     """Submit a domain for admin review, tracking the reporter's IP."""
@@ -76,54 +119,47 @@ def add_to_blocklist(domain: str, reason: str = "user_report", reporter_ip: str 
         from ..models.db_models import BlocklistEntry
         from ..database import db
         
-        # Only add if it doesn't already exist
         if not BlocklistEntry.query.filter_by(domain=domain).first():
             entry = BlocklistEntry(
                 domain=domain, 
                 reason=reason, 
                 is_approved=False,
-                reporter_ip=reporter_ip  # 👈 Now tracking the IP!
+                reporter_ip=reporter_ip
             )
             db.session.add(entry)
             db.session.commit()
     except Exception as e:
         current_app.logger.error(f"DB Error adding to blocklist for {domain}: {e}")
 
-# ── Seeding Logic ─────────────────────────────────────────────────────────────
+# ── 6. Seeding Logic ──────────────────────────────────────────────────────────
 
 def seed_database() -> None:
-    """
-    Populates the database with built-in seeds if they don't exist.
-    Optimized to use bulk lookups instead of querying in a loop.
-    """
+    """Populates the DB with built-in seeds if they don't exist."""
     from ..models.db_models import BlocklistEntry, AllowlistEntry
     from ..database import db
 
     try:
-        # 1. Fetch all existing domains from the DB into memory
-        existing_blocks = {entry.domain for entry in BlocklistEntry.query.with_entities(BlocklistEntry.domain).all()}
-        existing_allows = {entry.domain for entry in AllowlistEntry.query.with_entities(AllowlistEntry.domain).all()}
+        existing_blocks = {e.domain for e in BlocklistEntry.query.with_entities(BlocklistEntry.domain).all()}
+        existing_allows = {e.domain for e in AllowlistEntry.query.with_entities(AllowlistEntry.domain).all()}
 
-        # 2. Find missing entries using set subtraction
         missing_blocks = _BUILTIN_BLOCKLIST - existing_blocks
         missing_allows = _BUILTIN_ALLOWLIST - existing_allows
 
-        # 3. Add only the missing entries
         for domain in missing_blocks:
             db.session.add(BlocklistEntry(
                 domain=domain, 
                 reason="seed", 
                 added_by="seed", 
-                reporter_ip="127.0.0.1", # 👈 Added default IP for system seeds
+                reporter_ip="127.0.0.1",
                 is_approved=True
             ))
             
         for domain in missing_allows:
             db.session.add(AllowlistEntry(domain=domain))
 
-        # 4. Commit once for the whole transaction
         if missing_blocks or missing_allows:
             db.session.commit()
             
     except Exception as e:
         print(f"DB Error seeding database: {e}")
+
