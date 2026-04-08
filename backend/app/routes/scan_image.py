@@ -1,66 +1,19 @@
-"""
-routes/scan_image.py — POST /api/v1/scan-image
-================================================
-OpenCV-powered server-side QR code detection.
-
-Accepts an uploaded image (JPEG / PNG / WEBP, max 5 MB) and:
-  1. Converts to grayscale + applies adaptive thresholding
-  2. Runs cv2.QRCodeDetector for standard codes
-  3. Falls back to cv2.wechat_qrcode if available (WeChat detector —
-     handles damaged, rotated, split, and high-density codes)
-  4. Returns all decoded payloads with bounding-box coordinates
-
-Why server-side matters for the report:
-  - The Flutter mobile_scanner plugin uses AVFoundation (iOS) and
-    MLKit (Android), which are designed for live camera feeds.
-    They can miss adversarial compositions: split QR codes, codes
-    embedded inside other images, and very high-density (Version 40)
-    codes with damage.
-  - OpenCV's wechat_qrcode super-resolution model handles these cases.
-  - Moving decoding to the backend means the same detection quality
-    regardless of phone model or OS version.
-
-Rate limit: 10 per minute (OpenCV processing is CPU-intensive).
-
-Request:
-  POST /api/v1/scan-image
-  Content-Type: multipart/form-data
-  file=@qrcode.jpg
-
-Success 200:
-  {
-    "found": 2,
-    "codes": [
-      {
-        "payload":  "https://example.com",
-        "detector": "wechat_qrcode",
-        "bbox":     [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
-      },
-      ...
-    ]
-  }
-
-No QR found 200:
-  { "found": 0, "codes": [] }
-
-Error 400 / 415 / 413:
-  { "error": "..." }
-"""
+# backend/app/routes/scan_image.py
 from __future__ import annotations
 import io
+import cv2
+import numpy as np
 from flask import Blueprint, request, jsonify
 
 from ..limiter import limiter
-from ..logger  import get_logger
+from ..logger import get_logger
+from ..engine.resolver import resolve # ✅ Added: Use the 11-pillar resolver
+from ..engine.scorer import analyse_url # ✅ Added: The 11-pillar engine
 
-bp  = Blueprint("scan_image", __name__, url_prefix="/api/v1")
+bp = Blueprint("scan_image", __name__, url_prefix="/api/v1")
 log = get_logger("scan_image")
 
-_MAX_BYTES    = 5 * 1024 * 1024   # 5 MB
-_ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
-
-
-# backend/app/blueprints/scan_image.py
+_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 
 @bp.route("/scan-image", methods=["POST"])
 @limiter.limit("10 per minute")
@@ -69,96 +22,75 @@ def scan_image():
         return jsonify({"error": "No file field in request"}), 400
 
     file = request.files["file"]
-    # 🔴 FIX: Single read of first 5MB + 1 byte
-    raw = file.read(5 * 1024 * 1024 + 1)
+    
+    # ✅ FIXED: Read once and reuse. In the previous code, the second 
+    # file.read() would return an empty byte string because the pointer was at EOF.
+    raw_bytes = file.read(_MAX_BYTES + 1)
 
-    if len(raw) > 5 * 1024 * 1024:
+    if len(raw_bytes) > _MAX_BYTES:
         return jsonify({"error": "Image exceeds 5 MB limit"}), 413
 
-    # 🔴 FIX: Magic-byte validation inside function scope
+    # 1. Magic-byte validation
     _MAGIC = {
         b'\xff\xd8\xff': 'jpeg',
         b'\x89PNG':      'png',
         b'RIFF':         'webp',
         b'BM':           'bmp',
     }
-    detected = next((t for sig, t in _MAGIC.items() if raw[:len(sig)] == sig), None)
-    if not detected:
+    detected_format = next((t for sig, t in _MAGIC.items() if raw_bytes[:len(sig)] == sig), None)
+    if not detected_format:
         return jsonify({"error": "File type not recognised — submit JPEG, PNG, WEBP, or BMP"}), 415
 
-    # Proceed to OpenCV decode using 'raw' bytes...
-    raw = file.read(_MAX_BYTES + 1)
-    if len(raw) > _MAX_BYTES:
-        return jsonify({"error": "Image exceeds 5 MB limit"}), 413
-
-    # ── 2. Decode with OpenCV ──────────────────────────────────────────
-    try:
-        import cv2
-        import numpy as np
-    except ImportError:
-        log.error("OpenCV not installed — pip install opencv-python-headless")
-        return jsonify({"error": "Image processing unavailable on this server"}), 503
-
-    # Decode bytes → numpy array → greyscale
-    arr  = np.frombuffer(raw, dtype=np.uint8)
-    img  = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    # 2. Decode bytes to OpenCV Image
+    arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
         return jsonify({"error": "Could not decode image — file may be corrupted"}), 400
 
+    # Pre-processing
     grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # Adaptive threshold improves detection on low-contrast / shadowed codes
     thresh = cv2.adaptiveThreshold(
-        grey, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY, 11, 2,
     )
 
-    found_codes: list[dict] = []
+    found_payloads: list[dict] = []
 
-    # ── 2a. Standard OpenCV QRCodeDetector ────────────────────────────
+    # ── 3a. Detection Phase (OpenCV + WeChat Fallback) ────────────────
     detector = cv2.QRCodeDetector()
-
-    # detectAndDecodeMulti handles images containing more than one QR code
+    
+    # Try Standard Detector (Thresholded)
     ok, decoded_list, bboxes, _ = detector.detectAndDecodeMulti(thresh)
-    if ok and decoded_list:
-        for payload, bbox in zip(decoded_list, bboxes):
-            if payload:
-                found_codes.append({
-                    "payload":  payload,
-                    "detector": "QRCodeDetector",
-                    "bbox":     bbox.tolist() if bbox is not None else None,
-                })
-
-    # ── 2b. WeChat QRCode detector (super-resolution, better recall) ──
-    #   Available in opencv-contrib-python. Falls back gracefully if absent.
-    if not found_codes:
+    
+    # Fallback: WeChat Detector (Handles high-density / damaged codes)
+    if not ok or not decoded_list:
         try:
             wechat = cv2.wechat_qrcode_WeChatQRCode()
-            texts, bboxes_w = wechat.detectAndDecode(img)
-            for payload, bbox in zip(texts, bboxes_w):
-                if payload:
-                    found_codes.append({
-                        "payload":  payload,
-                        "detector": "wechat_qrcode",
-                        "bbox":     bbox.tolist() if bbox is not None else None,
-                    })
+            decoded_list, bboxes = wechat.detectAndDecode(img)
         except AttributeError:
-            pass   # contrib module not installed — not an error
+            pass # contrib module not installed
 
-    # ── 2c. Retry on original image if thresholded version found nothing ─
-    if not found_codes:
-        ok2, decoded2, bboxes2, _ = detector.detectAndDecodeMulti(grey)
-        if ok2 and decoded2:
-            for payload, bbox in zip(decoded2, bboxes2):
-                if payload:
-                    found_codes.append({
-                        "payload":  payload,
-                        "detector": "QRCodeDetector_grey",
-                        "bbox":     bbox.tolist() if bbox is not None else None,
-                    })
+    # ── 3b. Analysis Phase (The Merge) ───────────────────────────────
+    # We don't just return the URL anymore; we return the full security audit
+    if decoded_list:
+        for payload, bbox in zip(decoded_list, bboxes):
+            if payload and payload.strip():
+                # 🔥 THE MERGE: Run the 11-pillar analysis on the detected code
+                analysis_result = analyse_url(payload)
+                
+                found_payloads.append({
+                    "payload": payload,
+                    "analysis": analysis_result, # Full risk score, label, and checks
+                    "detector": "wechat_qrcode" if "wechat" in locals() else "standard",
+                    "bbox": bbox.tolist() if bbox is not None else None,
+                })
 
-    log.info("Image scan completed",
-             extra={"found": len(found_codes), "ip": request.remote_addr})
+    log.info("Image scan completed", extra={
+        "found": len(found_payloads), 
+        "ip": request.remote_addr
+    })
 
-    return jsonify({"found": len(found_codes), "codes": found_codes}), 200
+    return jsonify({
+        "found": len(found_payloads), 
+        "codes": found_payloads
+    }), 200
