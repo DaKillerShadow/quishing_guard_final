@@ -1,16 +1,28 @@
 #!/bin/bash
+set -ex
 
-# 1. Clone ONLY the latest Flutter files to save Vercel disk space
+echo "🧹 Starting clean build process..."
+
+# 1. Clone Flutter (Shallow)
 git clone https://github.com/flutter/flutter.git -b stable --depth 1 f
 
-# 2. Tell Vercel where Flutter is located
+# 2. Add Flutter to PATH
 export PATH="$PATH:$(pwd)/f/bin"
 
-# 3. Pre-download web artifacts to prevent Exit 64
+# 3. Precache Web tools
 flutter precache --web
 
-# 4. Navigate into your Flutter code folder!
-cd flutter_app
+# 4. Check if pubspec exists in the current folder
+if [ ! -f "pubspec.yaml" ]; then
+    echo "❌ ERROR: pubspec.yaml not found! Check your folder structure."
+    ls -la
+    exit 1
+fi
 
-# 5. Build the app using HTML renderer
-flutter build web --release --web-renderer html --dart-define=API_BASE_URL=$API_BASE_URL
+# 5. Build with the Fallback URL
+export SAFE_URL="${API_BASE_URL:-https://quishing-guard-backend.onrender.com}"
+echo "🔗 Building with API URL: $SAFE_URL"
+
+flutter build web --release --web-renderer html --dart-define="API_BASE_URL=$SAFE_URL"
+
+echo "✅ Build Complete!"
