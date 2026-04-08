@@ -196,9 +196,11 @@ def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEO
                 if meta_tag:
                     meta_refresh_found = True
                     content = meta_tag.get('content', '')
-                    if 'url=' in content.lower():
-                        # Extract the hidden URL and follow it on the next loop iteration
-                        next_url = content.lower().split('url=')[1].strip(' "\'')
+                    
+                    # 👈 THE FIX: Robust regex extraction instead of simple string splitting
+                    match = re.search(r'url\s*=\s*[\'"]?([^\'">\s]+)', content, re.I)
+                    if match:
+                        next_url = match.group(1).strip()
                         current = urllib.parse.urljoin(current, next_url)
                         continue
 
