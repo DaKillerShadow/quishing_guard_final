@@ -18,24 +18,16 @@ class _QuishingGuardAppState extends ConsumerState<QuishingGuardApp> {
   @override
   void initState() {
     super.initState();
-    // Pre-warm the Render backend on app launch.
-    //
-    // WHY THIS EXISTS:
-    // Render's free tier spins down instances after ~15 minutes of inactivity.
-    // The first request after sleep triggers a cold start that takes 40-60 seconds.
-    // During a live demo, the user scans a QR code and waits a full minute for
-    // a result — this destroys credibility.
-    //
-    // The fix: ping /api/v1/health immediately when the app opens. This wakes
-    // the server in the background while the user is looking at the scanner UI.
-    // By the time they scan their first QR code, the server is already warm and
-    // responds in ~200ms instead of ~50 seconds.
-    //
-    // isHealthy() is fire-and-forget (no await) — we don't block the UI waiting
-    // for it. If it fails (no network yet), that's fine — the scanner will handle
-    // the error when the user actually scans something.
+
+    // ── Pre-warming & Session Recovery ──
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(apiServiceProvider).isHealthy();
+      final api = ref.read(apiServiceProvider);
+      
+      // 1. Wake the Render backend from sleep (Cold Start Mitigation)
+      api.isHealthy();
+      
+      // 2. Restore Admin JWT token from SharedPreferences
+      api.loadSavedToken();
     });
   }
 
@@ -44,8 +36,19 @@ class _QuishingGuardAppState extends ConsumerState<QuishingGuardApp> {
     return MaterialApp.router(
       title: 'Quishing Guard',
       debugShowCheckedModeBanner: false,
+      
+      // Using the specialized dark theme we built for the "Security" aesthetic
       theme: AppTheme.dark,
+      
+      // Integrating the declarative router with Admin Guards
       routerConfig: appRouter,
+      
+      // Ensuring Snackbars and Dialogs use the correct theme colors globally
+      builder: (context, child) {
+        return ScaffoldMessenger(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }
