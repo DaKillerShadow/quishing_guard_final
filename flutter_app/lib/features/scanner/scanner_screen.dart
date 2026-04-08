@@ -245,13 +245,23 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     final hasError = scanState.apiException != null || (scanState.state == ScanState.error && scanState.errorMsg != null);
 
     // ── Navigation Listener ──
-    ref.listen(scanEventProvider, (previous, next) {
-      if (next != null) {
-        context.push('/preview', extra: next);
-        // Reset the event so it doesn't fire again on rebuilds
-        ref.read(scanEventProvider.notifier).state = null;
-      }
-    });
+ref.listen(scanEventProvider, (previous, next) async {
+  if (next != null) {
+    // A. RELEASE the camera hardware before navigating
+    // This frees the sensor so it doesn't get stuck in the background
+    _stopCamera(); 
+
+    // B. Navigate and WAIT (await) for the user to hit the back button
+    // Execution pauses here until the Preview/Lesson screen is closed
+    await context.push('/preview', extra: next);
+
+    // C. RE-ACQUIRE the camera sensor when the user returns
+    _startCamera();
+
+    // D. Clear the event
+    ref.read(scanEventProvider.notifier).state = null;
+  }
+});
 
     // ── Error Feedback ──
     ref.listen(scannerStateProvider, (previous, next) {
