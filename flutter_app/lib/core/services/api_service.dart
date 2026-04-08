@@ -175,10 +175,14 @@ class ApiService {
       DioExceptionType.receiveTimeout =>
         ApiException('Request timed out.', statusCode: 408),
       DioExceptionType.badResponse => ApiException(
-          (e.response?.data as Map?)?['error'] ?? 'Server encountered an error.',
+          // ✅ FIXED: Safely check if data is a Map before casting
+          (e.response?.data is Map) 
+              ? (e.response!.data as Map)['error'] ?? 'Server encountered an error.'
+              : 'Server Error ${e.response?.statusCode}: Check backend logs.',
           statusCode: e.response?.statusCode ?? 500,
         ),
       _ => ApiException('Network error occurred.', statusCode: 0),
     };
   }
 }
+
