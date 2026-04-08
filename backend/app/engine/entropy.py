@@ -4,15 +4,9 @@ entropy.py — Shannon Entropy Engine
 Implements §2.4.1 of the project report:
   H(X) = -∑ p(xᵢ) × log₂(p(xᵢ))
 
-DGA (Domain Generation Algorithm) detection: machine-generated domains
-exhibit high character-level entropy because pseudo-random algorithms
-distribute characters uniformly, whereas human-chosen names follow
-natural-language phonological rules (low entropy).
-
-Thresholds (Mamun et al., 2016):
-  Legitimate domains: 2.5 – 3.5 bits
-  DGA domains:        > 3.5 bits  (flagged as suspicious)
-  Definite DGA:       > 4.0 bits  (high confidence)
+Upgraded to use Normalized Entropy (H / H_max) to accurately detect 
+DGA patterns in short domains (< 12 characters) that are mathematically 
+bounded by log2(N).
 """
 
 from __future__ import annotations
@@ -21,32 +15,44 @@ import re
 import collections
 from dataclasses import dataclass
 
-
 # ── Thresholds ────────────────────────────────────────────────────────────────
-ENTROPY_SAFE      = 3.2   # below → probably human-chosen
-ENTROPY_WARN      = 3.55   # above → likely DGA
-MIN_LABEL_LEN     = 6     # short labels (e.g. "io", "api") are excluded
+# Using ratios (0.0 to 1.0) makes the engine length-agnostic.
+# 0.75 means the string is 75% as random as mathematically possible for its length.
+ENTROPY_RATIO_SAFE = 0.75   
+ENTROPY_RATIO_WARN = 0.85   
+MIN_LABEL_LEN      = 6     
 
 
 @dataclass
 class EntropyResult:
-    label: str          # SLD analysed
-    entropy: float      # Shannon entropy value (bits per char)
-    is_dga: bool        # True if entropy exceeds warning threshold
-    is_suspicious: bool # True if entropy in the "suspicious" band
-    confidence: str     # "low" | "medium" | "high"
+    label: str          
+    entropy: float      # Raw Shannon entropy
+    normalized: float   # Ratio of (entropy / max_possible_entropy)
+    is_dga: bool        
+    is_suspicious: bool 
+    confidence: str     
 
 
-def _shannon(s: str) -> float:
-    """Compute Shannon entropy of string s in bits per character."""
+def _shannon_data(s: str) -> tuple[float, float]:
+    """
+    Computes both raw Shannon entropy and the normalized entropy ratio.
+    Returns: (raw_entropy, normalized_ratio)
+    """
     if not s:
-        return 0.0
+        return 0.0, 0.0
     
     n = len(s)
-    # Optimized frequency counting using CPython's built-in Counter
     freq = collections.Counter(s)
     
-    return -sum((c / n) * math.log2(c / n) for c in freq.values())
+    raw_entropy = -sum((c / n) * math.log2(c / n) for c in freq.values())
+    
+    # Maximum possible entropy for a string of length N is log2(N)
+    # E.g., for a 10 char string, max entropy is ~3.32
+    max_entropy = math.log2(n) if n > 1 else 1.0
+    
+    normalized = raw_entropy / max_entropy if max_entropy > 0 else 0.0
+    
+    return raw_entropy, normalized
 
 
 def _clean_label(label: str) -> str:
@@ -56,41 +62,29 @@ def _clean_label(label: str) -> str:
 
 def dga_score(sld: str) -> EntropyResult:
     """
-    Analyse the Second-Level Domain (SLD) for DGA patterns.
-
-    Args:
-        sld: the second-level domain string, e.g. "paypal" from paypal.com
-             or "x7z9q2mwpb" from x7z9q2mwpb.ru
-
-    Returns:
-        EntropyResult with entropy value, DGA flag, and confidence level.
+    Analyse the Second-Level Domain (SLD) for DGA patterns using Normalized Entropy.
     """
-    # Fallback to prevent AttributeError if upstream parser passes None
     if not sld:
-        return EntropyResult(
-            label="", entropy=0.0,
-            is_dga=False, is_suspicious=False, confidence="low"
-        )
+        return EntropyResult(label="", entropy=0.0, normalized=0.0, is_dga=False, is_suspicious=False, confidence="low")
 
     label = sld.lower().strip()
 
-    # Too short to be meaningful
     if len(label) < MIN_LABEL_LEN:
-        return EntropyResult(
-            label=label, entropy=0.0,
-            is_dga=False, is_suspicious=False, confidence="low"
-        )
+        return EntropyResult(label=label, entropy=0.0, normalized=0.0, is_dga=False, is_suspicious=False, confidence="low")
 
-    h = _shannon(label)
+    # Get raw and normalized entropy for the full SLD
+    raw_h, norm_h = _shannon_data(label)
 
-    # Compute entropy on the letters-only version as a secondary check.
-    # Real DGA domains remain high-entropy even when digits/hyphens removed.
-    # We assign the cleaned label to a variable to prevent running the regex twice.
+    # Secondary check on cleaned label to prevent false positives on numbers
     cleaned_label = _clean_label(label)
-    h_letters = _shannon(cleaned_label) if len(cleaned_label) >= 4 else h
+    if len(cleaned_label) >= 4:
+        _, norm_h_letters = _shannon_data(cleaned_label)
+    else:
+        norm_h_letters = norm_h
 
-    is_suspicious = h >= ENTROPY_SAFE
-    is_dga        = h >= ENTROPY_WARN and h_letters >= ENTROPY_SAFE
+    # Use the normalized ratio for thresholding instead of raw bits
+    is_suspicious = norm_h >= ENTROPY_RATIO_SAFE
+    is_dga        = norm_h >= ENTROPY_RATIO_WARN and norm_h_letters >= ENTROPY_RATIO_SAFE
 
     if is_dga:
         confidence = "high"
@@ -101,7 +95,8 @@ def dga_score(sld: str) -> EntropyResult:
 
     return EntropyResult(
         label=label,
-        entropy=round(h, 4),
+        entropy=round(raw_h, 4),
+        normalized=round(norm_h, 4),
         is_dga=is_dga,
         is_suspicious=is_suspicious,
         confidence=confidence,
