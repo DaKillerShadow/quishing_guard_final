@@ -1,5 +1,5 @@
 """
-scorer.py — Master Integrated Heuristic Scoring Engine (v2.1.0)
+scorer.py — Master Integrated Heuristic Scoring Engine (v2.1.2)
 ======================================================
 Core analytical engine for Quishing Guard.
 Calculates risk scores based on multi-factor heuristics and 
@@ -94,9 +94,14 @@ _CRITICAL_OVERRIDE_FLOORS = {
 # ── 2. Helpers ────────────────────────────────────────────────────────────────
 
 def is_short_dga(domain_string: str) -> bool:
-    if re.search(r'[bcdfghjklmnpqrstvwxyz0-9]{5,}', domain_string.lower()):
-        return True
-    return False
+    """
+    Fallback for domains too short (< 6 chars) for Shannon Entropy.
+    Prevents false positives on words like 'strength' or 'netflix'.
+    """
+    if len(domain_string) >= 6:
+        return False
+    # Increased to 6 consecutive consonants to reduce false positives
+    return bool(re.search(r'[bcdfghjklmnpqrstvwxyz]{6,}', domain_string.lower()))
 
 # ── 3. Main Engine ────────────────────────────────────────────────────────────
 
@@ -278,4 +283,3 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "checks": checks, "redirect_chain": chain, "hop_count": total_hops,
         "overall_assessment": assessment_text
     }
-
