@@ -100,19 +100,27 @@ def trace_redirects(start_url: str) -> dict:
                 soup = BeautifulSoup(chunk, 'html.parser')
                 if soup.find('meta', attrs={'http-equiv': re.compile(r'refresh', re.I)}):
                     tracker_results["meta_refresh_found"] = True
-        except:
+        except (requests.RequestException, OSError):  # FIX H-2: narrowed from bare except
             pass
 
     return tracker_results
 
 # ── 3. The 11-Pillar Scoring Engine ──────────────────────────────────────────
 
-def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
+# FIX C-1: Added trace_data parameter so the route can pass pre-computed
+#           resolution data, eliminating the duplicate resolve() call that
+#           fired on every scan. Default of None keeps backwards compatibility
+#           for any direct callers (e.g. scan_image.py) that omit the argument.
+def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
+                trace_data: dict | None = None):
     """Calculates the 11-pillar risk score for a given URL."""
     checks = []
 
     # PHASE 1: Resolve Deception
-    trace_data = trace_redirects(url)
+    # FIX C-1: If trace_data was supplied by the caller, skip the internal
+    #           resolution entirely — the URL is already resolved upstream.
+    if trace_data is None:
+        trace_data = trace_redirects(url)
     target_url = trace_data["final_url"]
     
     # PHASE 2: Anatomy Extraction
@@ -132,7 +140,8 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     is_ip = False
     try:
         ipaddress.ip_address(domain); is_ip = True
-    except: pass
+    except ValueError:  # FIX H-2: narrowed from bare except (was catching SystemExit etc.)
+        pass
     checks.append({"name": "ip_literal", "label": "IP ADDRESS LITERAL", "score": 25 if is_ip else 0, "triggered": is_ip})
 
     # 3. Punycode/Homograph Attack
