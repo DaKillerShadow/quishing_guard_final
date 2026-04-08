@@ -250,7 +250,8 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     })
 
     # 10. Path & Subdomain Keyword Analysis 
-    scan_target = f"{subdomain.lower()}/{parsed.path.lower()}"
+    # Updated to catch keywords in the URL parameters as well
+scan_target = f"{subdomain.lower()}/{parsed.path.lower()}?{parsed.query.lower()}"
     matched_kws = [kw for kw in _PHISHING_PATH_KEYWORDS if kw in scan_target]
     path_hit = len(matched_kws) >= 1
     checks.append({
