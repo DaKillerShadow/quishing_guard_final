@@ -69,9 +69,13 @@ def dga_score(sld: str) -> EntropyResult:
     # Calculate raw entropy
     entropy = _shannon(label)
     
-    # Calculate normalized entropy (Theoretical max for this string length)
-    h_max = math.log2(domain_length) if domain_length > 1 else 1.0
-    h_norm = entropy / h_max  
+    # FIX C-2: Replace length-based H_max with the correct alphabet-size constant.
+    # The theoretical maximum Shannon entropy is log2(alphabet_size), NOT log2(string_length).
+    # Using string_length caused h_norm = 1.0 for any domain with all-unique characters
+    # (e.g. "github", "instagram"), producing confirmed false-positive DGA flags.
+    _ALPHABET_SIZE = 36          # a-z (26) + 0-9 (10) — full domain-label character set
+    H_MAX_ABSOLUTE = math.log2(_ALPHABET_SIZE)  # ≈ 5.170 bits — constant, not length-dependent
+    h_norm = entropy / H_MAX_ABSOLUTE            # FIX C-2: correct normalisation
 
     is_dga = False
     is_suspicious = False
@@ -88,7 +92,9 @@ def dga_score(sld: str) -> EntropyResult:
         
     # Check 3: High digit/consonant ratio (Catches typical DGA behavior)
     digits = sum(c.isdigit() for c in label)
-    if domain_length > 0 and (digits / domain_length) > 0.3: # If more than 30% numbers
+    # FIX M-3: Digit ratio alone is not sufficient — require elevated entropy too.
+    # Without the entropy guard, "365.com", "mp3.com", "123rf.com" are incorrectly flagged.
+    if domain_length > 0 and (digits / domain_length) > 0.3 and entropy > 2.8:  # FIX M-3
         is_dga = True
 
     # Check 4: Normalized baseline (Fallback for weird edge cases)
