@@ -1,4 +1,5 @@
 # backend/app/routes/scan_image.py
+from ..engine.scorer import analyse_url  # Keep the 's' here
 from __future__ import annotations
 import io
 import cv2
