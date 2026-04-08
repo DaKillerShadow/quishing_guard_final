@@ -41,6 +41,15 @@ def analyse():
         resolved_url   = raw_url
         redirect_chain = []
         hop_count      = 0
+        # FIX C-1: build a neutral trace payload — no network call needed for
+        #           allowlisted/blocklisted URLs; score is overridden anyway.
+        trace_data_for_scorer = {
+            "hop_count":          0,
+            "shortener_count":    0,
+            "final_url":          raw_url,
+            "meta_refresh_found": False,
+            "error":              None,
+        }
     else:
         max_hops = current_app.config.get("MAX_REDIRECT_HOPS", 10)
         timeout  = current_app.config.get("RESOLVER_TIMEOUT", 5)
@@ -50,11 +59,28 @@ def analyse():
             resolved_url   = res.resolved_url
             redirect_chain = res.redirect_chain
             hop_count      = res.hop_count
+            # FIX C-1: capture all trace fields from this single resolve() call
+            #           so analyse_url() can skip its internal trace_redirects().
+            trace_data_for_scorer = {
+                "hop_count":          res.hop_count,
+                "shortener_count":    res.shortener_count,
+                "final_url":          res.resolved_url,
+                "meta_refresh_found": False,
+                "error":              res.error,
+            }
         except Exception as e:
             current_app.logger.error(f"Resolution failed for {raw_url}: {e}")
             resolved_url = raw_url
             redirect_chain = []
             hop_count = 0
+            # FIX C-1: fallback trace data when resolution fails entirely
+            trace_data_for_scorer = {
+                "hop_count":          0,
+                "shortener_count":    0,
+                "final_url":          raw_url,
+                "meta_refresh_found": False,
+                "error":              str(e),
+            }
 
         # Re-check reputation for final destination if it wasn't caught initially
         if not allowlisted:
@@ -63,10 +89,14 @@ def analyse():
             blocklisted = is_blocklisted(resolved_url)
 
     # 4. Heuristic Analysis (Passes reputation flags for weighted scoring)
+    # FIX C-1: Pass pre-computed trace_data so analyse_url() skips its internal
+    #           trace_redirects() call — eliminates the duplicate resolve() that
+    #           previously fired on every scan, halving network cost and SSRF surface.
     result_data = analyse_url(
         url=resolved_url, 
         blocklisted=blocklisted, 
-        allowlisted=allowlisted
+        allowlisted=allowlisted,
+        trace_data=trace_data_for_scorer,  # FIX C-1
     )
 
     # 5. Use consistent Scan ID generation
