@@ -47,6 +47,7 @@ def analyse():
             "hop_count":          0,
             "shortener_count":    0,
             "final_url":          raw_url,
+            "redirect_chain":     [],
             "meta_refresh_found": False,
             "error":              None,
         }
@@ -65,6 +66,7 @@ def analyse():
                 "hop_count":          res.hop_count,
                 "shortener_count":    res.shortener_count,
                 "final_url":          res.resolved_url,
+                "redirect_chain":     res.redirect_chain,
                 "meta_refresh_found": False,
                 "error":              res.error,
             }
@@ -78,6 +80,7 @@ def analyse():
                 "hop_count":          0,
                 "shortener_count":    0,
                 "final_url":          raw_url,
+                "redirect_chain":     [],
                 "meta_refresh_found": False,
                 "error":              str(e),
             }
