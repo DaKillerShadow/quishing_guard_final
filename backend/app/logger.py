@@ -131,3 +131,14 @@ def get_logger(name: str | None = None) -> logging.Logger:
     if name:
         return _logger.getChild(name)
     return _logger
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """Ensure unhandled exceptions are logged through our structured logger."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+
+    _logger.critical("Unhandled system exception", 
+                     exc_info=(exc_type, exc_value, exc_traceback))
+
+# ── Link the system hook to our logger ──
+sys.excepthook = handle_exception
