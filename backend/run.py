@@ -3,6 +3,7 @@ import os
 from app import create_app, db  # 👈 Added 'db' here
 from app.logger import get_logger
 from app.engine.reputation import seed_database 
+from app.engine.scorer import analyse_url
 
 app = create_app()
 log = get_logger("startup")
