@@ -27,7 +27,7 @@ import re
 import idna
 import ipaddress
 import tldextract
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 # Import your dedicated modules
 from app.engine.entropy import dga_score
@@ -86,11 +86,12 @@ W_SLD_KEYWORDS   = 12
 W_URL_SHORTENER  = 15   
 
 _CRITICAL_OVERRIDE_FLOORS = {
-    "ip_literal":   65,
-    "punycode":     65,
-    "dga_entropy":  62,
-    "nested_short": 65,
-    "blocklist":    100,
+    "ip_literal":         65,
+    "punycode":           65,
+    "dga_entropy":        62,
+    "nested_short":       65,
+    "authority_spoofing": 65,  # ADDED: Instantly flag @ spoofs
+    "blocklist":          100,
 }
 
 # ── 3. Helper Functions ───────────────────────────────────────────────────────
@@ -137,31 +138,45 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     })
 
     # --- PHASE 2: THE ANATOMY ANALYSIS ---
-    ext = tldextract.extract(target_url)
+    # 1. DEEP URL DECODING (Defeats Percent Encoding Masking)
+    decoded_target = unquote(target_url).lower()
+    
+    ext = tldextract.extract(decoded_target)
     domain = ext.domain
     suffix = ext.suffix
     subdomain = ext.subdomain
     full_host = ".".join(part for part in [subdomain, domain, suffix] if part)
     
-    parsed = urlparse(target_url if target_url.startswith("http") else "https://" + target_url)
+    parsed = urlparse(decoded_target if decoded_target.startswith("http") else "https://" + decoded_target)
     scheme = parsed.scheme.lower()
 
-    # 1. IP Address Literal
+    # 2. AUTHORITY SPOOFING CHECK (Defeats the "@" Trap)
+    # The netloc contains the credentials if they exist (e.g., fake.com@real.com)
+    has_authority_spoof = "@" in parsed.netloc
+    checks.append({
+        "name": "authority_spoofing", "label": "Authority Spoofing (@ Mask)",
+        "status": "UNSAFE" if has_authority_spoof else "SAFE",
+        "message": "Credential format (@) used to mask the true domain!" if has_authority_spoof else "No domain masking detected. ✓",
+        "metric": "", "score": 40 if has_authority_spoof else 0, "triggered": has_authority_spoof
+    })
+
+    # 3. IP ADDRESS LITERAL (Now defeats Hex/Dword/Octal masks!)
     is_ip = False
     try:
-        ipaddress.ip_address(domain)
+        # parsed.hostname cleanly extracts the host, even if it's an integer
+        ipaddress.ip_address(parsed.hostname)
         is_ip = True
-    except ValueError: pass
+    except (ValueError, TypeError): pass
     
     checks.append({
         "name": "ip_literal", "label": "IP Address Literal",
         "status": "UNSAFE" if is_ip else "SAFE",
         "message": "Link uses a raw IP address instead of a domain name." if is_ip else "Link uses a proper registered domain name. ✓",
-        "metric": f"Host: {domain}" if is_ip else "",
+        "metric": f"Host: {parsed.hostname}" if is_ip else "",
         "score": W_IP_LITERAL if is_ip else 0, "triggered": is_ip
     })
 
-    # 2. Punycode / Homograph / Cyrillic Attack
+    # 4. Punycode / Homograph / Cyrillic Attack
     is_puny = False
     puny_msg = "No Punycode IDN encoding detected. ✓"
 
@@ -186,7 +201,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_PUNYCODE if is_puny else 0, "triggered": is_puny
     })
 
-    # 3. DGA Entropy Analysis
+    # 5. DGA Entropy Analysis
     entropy_result = dga_score(domain)
     is_dga_threat = entropy_result.is_dga or is_short_dga(domain)
     checks.append({
@@ -197,7 +212,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "score": W_DGA_ENTROPY if is_dga_threat else 0, "triggered": is_dga_threat
     })
 
-    # 4. Redirect Chain Depth
+    # 6. Redirect Chain Depth
     is_deep_redir = total_hops >= 3
     checks.append({
         "name": "redirect_depth", "label": "Redirect Chain Depth",
@@ -206,7 +221,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": f"Hops: {total_hops}", "score": W_REDIRECT_DEPTH if is_deep_redir else 0, "triggered": is_deep_redir
     })
 
-    # 5. Suspicious TLD
+    # 7. Suspicious TLD
     is_bad_tld = suffix.lower() in _BAD_TLDS
     checks.append({
         "name": "suspicious_tld", "label": "Suspicious TLD",
@@ -215,7 +230,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_SUSPICIOUS_TLD if is_bad_tld else 0, "triggered": is_bad_tld
     })
 
-    # 6. Excessive Subdomain Depth
+    # 8. Excessive Subdomain Depth
     depth = len(subdomain.split('.')) if subdomain else 0
     is_deep_sub = depth >= 3
     checks.append({
@@ -225,7 +240,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": f"Labels: {depth + 2}", "score": W_SUBDOMAIN if is_deep_sub else 0, "triggered": is_deep_sub
     })
 
-    # 7. HTTPS Enforcement
+    # 9. HTTPS Enforcement
     is_not_https = scheme != "https"
     checks.append({
         "name": "https_mismatch", "label": "HTTPS Enforcement",
@@ -234,7 +249,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_HTTPS if is_not_https else 0, "triggered": is_not_https
     })
 
-    # 8. Path & Subdomain Keyword Analysis 
+    # 10. Path & Subdomain Keyword Analysis 
     scan_target = f"{subdomain.lower()}/{parsed.path.lower()}"
     matched_kws = [kw for kw in _PHISHING_PATH_KEYWORDS if kw in scan_target]
     path_hit = len(matched_kws) >= 1
@@ -245,7 +260,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_PATH_KEYWORDS if path_hit else 0, "triggered": path_hit
     })
 
-    # 9. SLD Keyword Analysis
+    # 11. SLD Keyword Analysis
     sld_lower = domain.lower()
     matched_sld = [kw for kw in _SUSPICIOUS_SLD_KEYWORDS if kw in sld_lower]
     sld_hit = len(matched_sld) >= 1
@@ -256,7 +271,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_SLD_KEYWORDS if sld_hit else 0, "triggered": sld_hit
     })
 
-    # 10. URL Shortener Detection
+    # 12. URL Shortener Detection
     etld1 = f"{domain}.{suffix}".lower()
     short_hit = etld1 in KNOWN_SHORTENERS or full_host.lower() in KNOWN_SHORTENERS
     short_hit = short_hit and total_hops == 0
@@ -303,3 +318,4 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "hop_count": total_hops,
         "overall_assessment": assessment_text
     }
+
