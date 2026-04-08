@@ -189,8 +189,10 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     if allowlisted: risk_score = 0
 
     return {
-        "risk_score": risk_score,
+        "url": url, 
+        "resolved_url": target_url, 
+        "risk_score": risk_score, 
         "risk_label": "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger",
-        "resolved_url": target_url,
-        "checks": checks
+        "checks": checks, 
+        "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {risk_label.upper()}."
     }
