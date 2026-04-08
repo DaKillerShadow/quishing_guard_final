@@ -1,13 +1,9 @@
-// lib/features/about/about_screen.dart
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../shared/theme/app_theme.dart';
 import '../../core/utils/app_constants.dart';
 
-// FIX: was using default Flutter white theme (no AppColors), had a missing
-// const constructor, unfinished placeholder text, and no @override annotations.
-// Rebuilt to match the app's dark cybersecurity aesthetic.
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
@@ -63,9 +59,9 @@ class AboutScreen extends StatelessWidget {
                     'Quishing Guard is a proactive cybersecurity system designed to '
                     'detect QR code phishing (quishing) attacks in real time. It scans '
                     'QR codes, resolves the embedded URL through a secure backend, '
-                    'and applies 7 independent heuristic checks — including Shannon '
-                    'Entropy analysis for DGA domain detection, Punycode homograph '
-                    'detection, and redirect chain analysis — before any navigation occurs.',
+                    'and applies 8 independent heuristic checks — including Shannon ' // FIXED: 7 -> 8
+                    'Entropy analysis, Punycode homograph detection, and path keyword '
+                    'analysis — before any navigation occurs.',
                     style: TextStyle(
                       fontFamily: 'monospace', fontSize: 12,
                       color: AppColors.muted, height: 1.7,
@@ -100,7 +96,7 @@ class AboutScreen extends StatelessWidget {
             const SizedBox(height: 16),
 
             // ── Heuristic checks ──────────────────────────────
-            _section('HEURISTIC ENGINE — 7 CHECKS'),
+            _section('HEURISTIC ENGINE — 8 CHECKS'), // FIXED: 7 -> 8
             Container(
               decoration: BoxDecoration(
                 color: AppColors.panel,
@@ -112,10 +108,10 @@ class AboutScreen extends StatelessWidget {
                 _checkRow('IP Literal',           '25 pts', 'Raw IP instead of domain'),
                 _checkRow('DGA Entropy',          '20 pts', 'Shannon entropy > 3.2 bits'),
                 _checkRow('Redirect Depth',       '20 pts', '3+ redirect hops'),
+                _checkRow('Path Keywords',        '15 pts', 'Phishing keywords in URL path'), // ADDED: Matches backend
                 _checkRow('Suspicious TLD',        '8 pts', 'High-abuse TLD registry'),
                 _checkRow('Subdomain Depth',       '8 pts', 'Excessive nesting'),
                 _checkRow('HTTPS Enforcement',     '7 pts', 'Unencrypted HTTP'),
-                _checkRow('Path Keywords',          '15 pts', 'Phishing keywords in URL path'),
               ]),
             ),
             const SizedBox(height: 32),
