@@ -40,14 +40,13 @@ def get_real_client_ip() -> str:
     ips = [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
 
     if ips and TRUSTED_PROXY_COUNT > 0:
-        # FIX C-3: The real client sits just left of our trusted proxy chain.
-        # With TRUSTED_PROXY_COUNT=1 and header "spoofed_ip, real_client, lb_ip":
-        #   len=3, idx = max(0, 3-1) = 2 → picks "lb_ip" ← that's our proxy
-        # We want the IP to the LEFT of the proxy chain, so idx = len - TRUSTED_PROXY_COUNT:
-        #   idx = max(0, 3-1) = 2... wait, we want index (len - TRUSTED_PROXY_COUNT)
-        #   = max(0, 3 - 1) = 2 → "lb_ip"... that's still wrong.
-        # Correct: client is at position len(ips) - TRUSTED_PROXY_COUNT - 1,
-        # but clamped to 0 for short chains where the client IS the first entry.
+        # FIX C-3: Pick the IP that sits just left of our trusted proxy chain.
+        # The load balancer appends the real client IP as the rightmost entry,
+        # so legitimate chains look like: ["attacker_spoof", "real_client"]
+        # With TRUSTED_PROXY_COUNT=1:
+        #   idx = max(0, 2 - 1) = 1 → ips[1] = "real_client" ✅
+        #   The leftmost spoofed value is never used as the rate-limit key.
+        # Clamped to 0 so short chains (single-entry headers) still work.
         idx = max(0, len(ips) - TRUSTED_PROXY_COUNT)
         return ips[idx]
 
