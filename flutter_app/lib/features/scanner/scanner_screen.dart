@@ -55,7 +55,6 @@ final scannerStateProvider =
     StateNotifierProvider<ScannerController, ScannerState>(
         (ref) => ScannerController(ref));
 
-/// Global event bus for navigation to avoid passing BuildContext into Controllers
 final scanEventProvider = StateProvider<ScanResult?>((ref) => null);
 
 // ── Controller ────────────────────────────────────────────────────────────────
@@ -94,16 +93,9 @@ class ScannerController extends StateNotifier<ScannerState> {
   }
 
   Future<void> _analyse(String url) async {
-    // ── 1. Normalization Logic (Bare Domain Fix) ──
     String normalizedUrl = url.trim();
-    
-    // Check if it has a scheme (http, https, etc). 
     final hasScheme = RegExp(r'^[a-z]+://', caseSensitive: false).hasMatch(normalizedUrl);
-    
-    if (!hasScheme) {
-      // If no protocol is present, we prepend http:// to satisfy the backend validator
-      normalizedUrl = 'http://$normalizedUrl'; 
-    }
+    if (!hasScheme) normalizedUrl = 'http://$normalizedUrl'; 
 
     state = state.copyWith(
       state: ScanState.analysing,
@@ -111,13 +103,10 @@ class ScannerController extends StateNotifier<ScannerState> {
     );
 
     try {
-      // Use normalizedUrl for the API call
       final result = await _ref.read(apiServiceProvider).analyseUrl(normalizedUrl);
       await _ref.read(historyProvider.notifier).add(result);
 
       state = state.copyWith(state: ScanState.done, statusMsg: 'Analysis Complete');
-      
-      // Trigger navigation event
       _ref.read(scanEventProvider.notifier).state = result;
       
     } on ApiException catch (e) {
@@ -140,9 +129,7 @@ class ScannerController extends StateNotifier<ScannerState> {
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image == null) return;
 
-    state = state.copyWith(
-        state: ScanState.scanning, statusMsg: '🔍 Scanning locally...');
-    
+    state = state.copyWith(state: ScanState.scanning, statusMsg: '🔍 Scanning locally...');
     final controller = MobileScannerController();
     final BarcodeCapture? capture = await controller.analyzeImage(image.path);
     controller.dispose();
@@ -158,14 +145,13 @@ class ScannerController extends StateNotifier<ScannerState> {
       try {
         final bytes = await image.readAsBytes();
         final payloads = await _ref.read(apiServiceProvider).scanImage(bytes, image.name);
-        
         if (payloads.isNotEmpty) {
           HapticFeedback.heavyImpact();
           await _analyse(payloads.first);
         } else {
           state = state.copyWith(
               state: ScanState.error,
-              errorMsg: 'No QR code found even with Super-Resolution.',
+              errorMsg: 'No QR code found in image.',
               statusMsg: 'Point at a QR code');
         }
       } catch (e) {
@@ -198,8 +184,7 @@ class ScannerScreen extends ConsumerStatefulWidget {
   ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends ConsumerState<ScannerScreen>
-    with WidgetsBindingObserver {
+class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindingObserver {
   late final MobileScannerController _cam;
   bool _isCameraActive = false;
 
@@ -241,9 +226,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     if (!_isCameraActive) return;
     try {
       await _cam.stop();
-      if (mounted) {
-        setState(() => _isCameraActive = false);
-      }
+      if (mounted) setState(() => _isCameraActive = false);
     } catch (e) {
       debugPrint('Camera Release Error: $e');
     }
@@ -266,19 +249,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     ref.listen(scanEventProvider, (previous, next) async {
       if (next != null) {
         await _stopCamera(); 
-        if (context.mounted) {
-          await context.push('/preview', extra: next);
-        }
+        if (context.mounted) await context.push('/preview', extra: next);
         await _startCamera();
         ref.read(scanEventProvider.notifier).state = null;
-      }
-    });
-
-    ref.listen(scannerStateProvider, (previous, next) {
-      if (next.apiException == null && next.state == ScanState.error && next.errorMsg != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(next.errorMsg!), backgroundColor: AppColors.ember),
-        );
       }
     });
 
@@ -289,8 +262,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         children: [
           Positioned.fill(
             child: ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                  sigmaX: hasError ? 2 : 0, sigmaY: hasError ? 2 : 0),
+              imageFilter: ImageFilter.blur(sigmaX: hasError ? 2 : 0, sigmaY: hasError ? 2 : 0),
               child: MobileScanner(
                 controller: _cam,
                 onDetect: ref.read(scannerStateProvider.notifier).onDetect,
@@ -406,8 +378,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         title: const Text('🛡 System Architect', style: TextStyle(color: AppColors.arc)),
         content: const Text(
           'Quishing Guard v2.0\n\n'
-          'Designed, developed, and engineered by Mohamed Abdelfattah for the 2026 Graduation Project.\n\n'
-          'Core Tech: Flutter, Python, Shannon Entropy Heuristics, Punycode & Homograph Detection, OpenCV WeChat CNN Decoder.',
+          'Designed and engineered by Mohamed Abdelfattah for the 2026 Graduation Project.\n\n'
+          'Core Tech: Flutter, Shannon Entropy Heuristics, Punycode Detection, OpenCV WeChat CNN.',
           style: TextStyle(color: Colors.white, height: 1.5, fontSize: 13),
         ),
         actions: [
@@ -421,3 +393,122 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   }
 }
 
+// ── Supporting UI Widgets ───────────────────────────────────────────────────
+
+class _TopChip extends StatelessWidget {
+  const _TopChip({required this.icon, required this.label, required this.color});
+  final String icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+}
+
+class _IconBtn extends StatelessWidget {
+  const _IconBtn({required this.icon, this.active = false, required this.onTap});
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: active ? AppColors.arc : AppColors.panel,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: active ? AppColors.arc : AppColors.rim),
+        ),
+        child: Icon(icon, color: active ? Colors.black : Colors.white, size: 20),
+      ),
+    );
+  }
+}
+
+class _StatusIndicator extends StatelessWidget {
+  const _StatusIndicator({required this.msg});
+  final String msg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.rim),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 6, height: 6, decoration: const BoxDecoration(color: AppColors.arc, shape: BoxShape.circle)),
+          const SizedBox(width: 10),
+          Text(msg.toUpperCase(), style: const TextStyle(color: AppColors.textColor, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+        ],
+      ),
+    );
+  }
+}
+
+class _CtrlBtn extends StatelessWidget {
+  const _CtrlBtn({required this.icon, required this.label, required this.onTap, this.highlight = false});
+  final String icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: highlight ? AppColors.arc : AppColors.panel,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: highlight ? AppColors.arc : AppColors.rim),
+        ),
+        child: Column(
+          children: [
+            Text(icon, style: const TextStyle(fontSize: 18)),
+            const SizedBox(height: 4),
+            Text(label, style: TextStyle(color: highlight ? Colors.black : Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DigitalSignature extends StatelessWidget {
+  const _DigitalSignature();
+  @override
+  Widget build(BuildContext context) {
+    return const Opacity(
+      opacity: 0.5,
+      child: Text('SIGNED BY QUISHING GUARD SECURE CORE',
+        style: TextStyle(color: AppColors.muted, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 2)),
+    );
+  }
+}
