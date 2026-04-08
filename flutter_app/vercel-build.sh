@@ -9,6 +9,8 @@ export PATH="$PATH:$(pwd)/f/bin"
 # 3. Pre-download web artifacts to prevent Exit 64
 flutter precache --web
 
-# 4. Build the app using HTML renderer for Vercel stability
-flutter build web --release --web-renderer html --dart-define=API_BASE_URL=$API_BASE_URL
+# 4. Navigate into your Flutter code folder!
+cd flutter_app
 
+# 5. Build the app using HTML renderer
+flutter build web --release --web-renderer html --dart-define=API_BASE_URL=$API_BASE_URL
