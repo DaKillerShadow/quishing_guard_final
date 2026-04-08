@@ -1,129 +1,61 @@
-import 'package:uuid/uuid.dart';
-
-class SecurityCheck {
-  const SecurityCheck({
-    required this.name,
-    required this.label,
-    required this.status,
-    required this.triggered,
-    required this.score,
-    required this.message,
-    required this.metric,
-  });
-
-  final String name;
-  final String label;
-  final String status; // 'SAFE' | 'WARNING' | 'DANGER'
-  final bool triggered;
-  final int score;
-  final String message;
-  final String metric;
-
-  factory SecurityCheck.fromJson(Map<String, dynamic> j) => SecurityCheck(
-        name: j['name']?.toString() ?? '',
-        label: j['label']?.toString() ?? j['name']?.toString() ?? 'Security Indicator',
-        status: j['status']?.toString().toUpperCase() ?? 'SAFE',
-        triggered: j['triggered'] as bool? ?? (j['status'] != 'SAFE'),
-        score: (j['score'] as num?)?.toInt() ?? 0,
-        message: j['message']?.toString() ?? j['description']?.toString() ?? '',
-        metric: j['metric']?.toString() ?? '',
-      );
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'label': label,
-        'status': status,
-        'triggered': triggered,
-        'score': score,
-        'message': message,
-        'metric': metric,
-      };
-}
-
-class ScanResult {
-  ScanResult({
-    required this.id,
-    required this.url,
-    required this.resolvedUrl,
-    required this.riskScore,
-    required this.riskLabel,
-    required this.checks,
-    required this.redirectChain,
-    required this.hopCount,
-    required this.scannedAt,
-    required this.overallAssessment,
-    this.topThreat,
-    this.isAllowlisted = false,
-    this.isBlocklisted = false,
-    this.reported = false,
-  });
-
+class LessonModel {
   final String id;
-  final String url;
-  final String resolvedUrl;
-  final int riskScore;
-  final String riskLabel;
-  final List<SecurityCheck> checks;
-  final List<String> redirectChain;
-  final int hopCount;
-  final DateTime scannedAt;
-  final String overallAssessment;
-  final String? topThreat;
-  final bool isAllowlisted;
-  final bool isBlocklisted;
-  bool reported;
+  final String title;
+  final String description;
+  final String whatToLookFor;
+  final String actionableAdvice;
 
-  // --- UI GETTERS ---
+  const LessonModel({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.whatToLookFor,
+    required this.actionableAdvice,
+  });
 
-  bool get isSafe => riskScore < 30;
-  bool get isWarning => riskScore >= 30 && riskScore < 70;
-  bool get isDanger => riskScore >= 70;
-
-  /// Returns a clean root domain for the UI (e.g., "evil.com")
-  String get displayHost {
-    final cleanUrl = resolvedUrl.toLowerCase().trim();
-    try {
-      final uri = Uri.parse(cleanUrl);
-      final host = uri.host.replaceFirst('www.', '');
-      return host.isNotEmpty ? host : cleanUrl;
-    } catch (_) {
-      // Fallback regex for malformed URLs
-      final match = RegExp(r'^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?]+)', caseSensitive: false)
-          .firstMatch(cleanUrl);
-      return match?.group(1) ?? (cleanUrl.length > 30 ? '${cleanUrl.substring(0, 30)}…' : cleanUrl);
-    }
-  }
-
-  /// Finds the triggered check with the highest score to display the correct Lesson
-  SecurityCheck? get worstCheck {
-    final triggered = checks.where((c) => c.triggered).toList();
-    if (triggered.isEmpty) return null;
-    triggered.sort((a, b) => b.score.compareTo(a.score));
-    return triggered.first;
-  }
-
-  factory ScanResult.fromJson(Map<String, dynamic> j) {
-    final rawChecks = j['checks'] as List<dynamic>? ?? [];
-    
-    return ScanResult(
-      // CRITICAL: Prioritize backend ID for reporting loop
-      id: j['id']?.toString() ?? const Uuid().v4(),
-      url: j['url']?.toString() ?? j['raw_url']?.toString() ?? '',
-      resolvedUrl: j['resolved_url']?.toString() ?? '',
-      riskScore: (j['risk_score'] as num?)?.toInt() ?? 0,
-      riskLabel: j['risk_label']?.toString().toLowerCase() ?? 'safe',
-      topThreat: j['top_threat']?.toString(),
-      isAllowlisted: j['is_allowlisted'] == true,
-      isBlocklisted: j['is_blocklisted'] == true,
-      hopCount: (j['hop_count'] as num?)?.toInt() ?? 0,
-      overallAssessment: j['overall_assessment']?.toString() ?? '',
-      scannedAt: j['analysed_at'] != null
-          ? DateTime.tryParse(j['analysed_at'].toString()) ?? DateTime.now()
-          : DateTime.now(),
-      redirectChain: (j['redirect_chain'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ?? [],
-      checks: rawChecks.map((c) => SecurityCheck.fromJson(c)).toList(),
-    );
-  }
+  // This maps the backend check 'name' to the specific lesson content
+  static const Map<String, LessonModel> catalogue = {
+    'authority_spoofing': LessonModel(
+      id: 'authority_spoofing',
+      title: 'Domain Masking (@)',
+      description: 'Attackers use the "@" symbol to hide the real destination of a link.',
+      whatToLookFor: 'Look closely at the URL. Everything before the "@" is ignored by the browser.',
+      actionableAdvice: 'Never trust a link that contains an "@" symbol in the middle of the domain.',
+    ),
+    'punycode': LessonModel(
+      id: 'punycode',
+      title: 'Homograph Attack',
+      description: 'Attackers use characters from other languages (like Cyrillic) that look identical to English letters.',
+      whatToLookFor: 'Look for "xn--" at the start of the domain, or characters that look slightly strange.',
+      actionableAdvice: 'Type critical URLs (like your bank) manually instead of clicking links.',
+    ),
+    'ip_literal': LessonModel(
+      id: 'ip_literal',
+      title: 'Hidden Behind Numbers',
+      description: 'Instead of a registered name (like google.com), the link uses a raw IP address.',
+      whatToLookFor: 'A URL that starts with numbers and dots (e.g., http://192.168.1.1).',
+      actionableAdvice: 'Legitimate companies rarely use raw IPs for consumer links. Do not proceed.',
+    ),
+    'nested_short': LessonModel(
+      id: 'nested_short',
+      title: 'Nested Shorteners',
+      description: 'The attacker is hiding the final destination by putting a shortened link inside another shortened link.',
+      whatToLookFor: 'If a bit.ly link redirects to a tinyurl.com link, it is highly suspicious.',
+      actionableAdvice: 'Use link expander tools or our scanner to see the final destination before logging in.',
+    ),
+    'dga_entropy': LessonModel(
+      id: 'dga_entropy',
+      title: 'Machine-Generated URL',
+      description: 'The domain name consists of random characters generated by malware.',
+      whatToLookFor: 'Look for domains that look like gibberish (e.g., "xytqbz129.com").',
+      actionableAdvice: 'If you cannot pronounce it and it looks like a password, it is likely malicious.',
+    ),
+    'generic': LessonModel(
+      id: 'generic',
+      title: 'Suspicious Activity Detected',
+      description: 'This QR code triggered our heuristic security filters.',
+      whatToLookFor: 'Look for poor grammar, urgent requests, and requests for sensitive info.',
+      actionableAdvice: 'When in doubt, contact the sender through a verified, separate channel.',
+    ),
+  };
 }
