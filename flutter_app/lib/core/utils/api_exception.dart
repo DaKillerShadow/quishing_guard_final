@@ -1,5 +1,7 @@
 // lib/core/utils/api_exception.dart
 
+import 'package:flutter/material.dart';
+
 enum ApiErrorType { timeout, server, network, validation, unknown }
 
 class ApiException implements Exception {
@@ -17,11 +19,26 @@ class ApiException implements Exception {
   bool get isTimeout => type == ApiErrorType.timeout;
   bool get isServer  => type == ApiErrorType.server;
 
-  // FIX: was returning a hardcoded generic string for every error type.
-  // This meant timeout, 401, 422, and network errors all showed the same
-  // message in the UI — making it impossible for users to know what happened.
-  // Now returns the actual descriptive message set by the error mapping in
-  // api_service.dart, which varies correctly by error type.
+  // ── UI Helpers ──
+
+  /// Returns a short bold title for the Error Dialog
+  String get title => switch (type) {
+    ApiErrorType.timeout    => 'Connection Timeout',
+    ApiErrorType.server     => 'Server Analysis Error',
+    ApiErrorType.network    => 'Network Unreachable',
+    ApiErrorType.validation => 'Invalid QR Code',
+    ApiErrorType.unknown    => 'Unexpected Error',
+  };
+
+  /// Returns a context-appropriate icon for the UI
+  IconData get icon => switch (type) {
+    ApiErrorType.timeout    => Icons.timer_off_outlined,
+    ApiErrorType.server     => Icons.dns_outlined,
+    ApiErrorType.network    => Icons.wifi_off_outlined,
+    ApiErrorType.validation => Icons.qr_code_scanner_outlined,
+    ApiErrorType.unknown    => Icons.error_outline,
+  };
+
   @override
   String toString() => message;
 }
