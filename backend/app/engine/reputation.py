@@ -41,8 +41,6 @@ def _get_etld1(url_or_hostname: str) -> str:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-
-
 def is_allowlisted(url_or_hostname: str) -> bool:
     """Check if a domain is trusted via built-in list or DB."""
     domain = _get_etld1(url_or_hostname)
@@ -71,14 +69,21 @@ def is_blocklisted(url_or_hostname: str) -> bool:
         current_app.logger.error(f"DB Error checking blocklist for {domain}: {e}")
         return False
 
-def add_to_blocklist(domain: str, reason: str = "user_report") -> None:
-    """Submit a domain for admin review."""
+def add_to_blocklist(domain: str, reason: str = "user_report", reporter_ip: str | None = None) -> None:
+    """Submit a domain for admin review, tracking the reporter's IP."""
     domain = _get_etld1(domain)
     try:
         from ..models.db_models import BlocklistEntry
         from ..database import db
+        
+        # Only add if it doesn't already exist
         if not BlocklistEntry.query.filter_by(domain=domain).first():
-            entry = BlocklistEntry(domain=domain, reason=reason, is_approved=False)
+            entry = BlocklistEntry(
+                domain=domain, 
+                reason=reason, 
+                is_approved=False,
+                reporter_ip=reporter_ip  # 👈 Now tracking the IP!
+            )
             db.session.add(entry)
             db.session.commit()
     except Exception as e:
@@ -109,6 +114,7 @@ def seed_database() -> None:
                 domain=domain, 
                 reason="seed", 
                 added_by="seed", 
+                reporter_ip="127.0.0.1", # 👈 Added default IP for system seeds
                 is_approved=True
             ))
             
@@ -120,5 +126,4 @@ def seed_database() -> None:
             db.session.commit()
             
     except Exception as e:
-        # We use print here as a fallback if the app logger isn't ready during boot
         print(f"DB Error seeding database: {e}")
