@@ -1,4 +1,4 @@
-// lib/features//scanner/scanner_screen.dart
+// lib/features/scanner/scanner_screen.dart
 import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/models/scan_result.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
 import '../../core/utils/api_exception.dart';
@@ -54,6 +55,9 @@ final scannerStateProvider =
     StateNotifierProvider<ScannerController, ScannerState>(
         (ref) => ScannerController(ref));
 
+/// Global event bus for navigation to avoid passing BuildContext into Controllers
+final scanEventProvider = StateProvider<ScanResult?>((ref) => null);
+
 // ── Controller ────────────────────────────────────────────────────────────────
 
 class ScannerController extends StateNotifier<ScannerState> {
@@ -81,6 +85,7 @@ class ScannerController extends StateNotifier<ScannerState> {
     if (value == _lastCode &&
         _lastAt != null &&
         now.difference(_lastAt!) < _debounce) return;
+    
     _lastCode = value;
     _lastAt = now;
 
@@ -89,25 +94,21 @@ class ScannerController extends StateNotifier<ScannerState> {
   }
 
   Future<void> _analyse(String url) async {
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      state = state.copyWith(
-        state: ScanState.error,
-        errorMsg: 'Not a valid URL. QR code contains text: "$url"',
-        statusMsg: 'Not a web link — tap to retry',
-      );
-      return;
-    }
-
     state = state.copyWith(
       state: ScanState.analysing,
       statusMsg: '✓ QR detected — analysing…',
     );
+
     try {
+      // Logic: Backend validators.py now handles bare domains, so we pass it directly.
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
       await _ref.read(historyProvider.notifier).add(result);
 
-      state = state.copyWith(state: ScanState.done);
-      _ref.read(_navigateProvider)?.call('/preview', extra: result);
+      state = state.copyWith(state: ScanState.done, statusMsg: 'Analysis Complete');
+      
+      // Trigger navigation event
+      _ref.read(scanEventProvider.notifier).state = result;
+      
     } on ApiException catch (e) {
       state = state.copyWith(
         state: ScanState.error,
@@ -118,7 +119,7 @@ class ScannerController extends StateNotifier<ScannerState> {
       state = state.copyWith(
         state: ScanState.error,
         errorMsg: e.toString(),
-        statusMsg: 'Analysis failed — tap to retry',
+        statusMsg: 'Internal error — tap to retry',
       );
     }
   }
@@ -129,9 +130,12 @@ class ScannerController extends StateNotifier<ScannerState> {
     if (image == null) return;
 
     state = state.copyWith(
-        state: ScanState.scanning, statusMsg: '🔍 Analysing image...');
+        state: ScanState.scanning, statusMsg: '🔍 Scanning locally...');
+    
+    // 1. Attempt Local MLKit / AVFoundation Scan
     final controller = MobileScannerController();
     final BarcodeCapture? capture = await controller.analyzeImage(image.path);
+    controller.dispose();
 
     if (capture != null && capture.barcodes.isNotEmpty) {
       final String? code = capture.barcodes.first.rawValue;
@@ -140,12 +144,28 @@ class ScannerController extends StateNotifier<ScannerState> {
         await _analyse(code);
       }
     } else {
-      state = state.copyWith(
-          state: ScanState.error,
-          errorMsg: 'No QR code found.',
-          statusMsg: 'Point at a QR code');
+      // 2. ESCALATION: Local scan failed. Use Server-Side OpenCV/WeChat Engine
+      state = state.copyWith(statusMsg: '🔬 Local failed — using Advanced AI...');
+      try {
+        final bytes = await image.readAsBytes();
+        final payloads = await _ref.read(apiServiceProvider).scanImage(bytes, image.name);
+        
+        if (payloads.isNotEmpty) {
+          HapticFeedback.heavyImpact();
+          await _analyse(payloads.first);
+        } else {
+          state = state.copyWith(
+              state: ScanState.error,
+              errorMsg: 'No QR code found even with Super-Resolution.',
+              statusMsg: 'Point at a QR code');
+        }
+      } catch (e) {
+        state = state.copyWith(
+            state: ScanState.error,
+            errorMsg: 'Server-side image analysis failed.',
+            statusMsg: 'Retry with a clearer photo');
+      }
     }
-    controller.dispose();
   }
 
   Future<void> runDemo() async {
@@ -157,11 +177,9 @@ class ScannerController extends StateNotifier<ScannerState> {
   void reset() {
     _lastCode = null;
     state = const ScannerState();
+    _ref.read(scanEventProvider.notifier).state = null;
   }
 }
-
-final _navigateProvider =
-    StateProvider<void Function(String, {Object? extra})?>((ref) => null);
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -185,12 +203,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       facing: CameraFacing.back,
       formats: [BarcodeFormat.qrCode],
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(_navigateProvider.notifier).state = (path, {extra}) {
-        if (mounted) context.push(path, extra: extra);
-      };
-      _startCamera();
-    });
+    _startCamera();
   }
 
   @override
@@ -228,14 +241,23 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerStateProvider);
-    final isLoading = scanState.state == ScanState.analysing;
-    final hasError = scanState.apiException != null;
+    final isLoading = scanState.state == ScanState.analysing || scanState.state == ScanState.scanning;
+    final hasError = scanState.apiException != null || (scanState.state == ScanState.error && scanState.errorMsg != null);
 
+    // ── Navigation Listener ──
+    ref.listen(scanEventProvider, (previous, next) {
+      if (next != null) {
+        context.push('/preview', extra: next);
+        // Reset the event so it doesn't fire again on rebuilds
+        ref.read(scanEventProvider.notifier).state = null;
+      }
+    });
+
+    // ── Error Feedback ──
     ref.listen(scannerStateProvider, (previous, next) {
-      if (next.apiException == null && next.errorMsg != null) {
+      if (next.apiException == null && next.state == ScanState.error && next.errorMsg != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(next.errorMsg!), backgroundColor: AppColors.ember),
+          SnackBar(content: Text(next.errorMsg!), backgroundColor: AppColors.ember),
         );
       }
     });
@@ -256,44 +278,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
             ),
           ),
           const Positioned.fill(child: ScanOverlay()),
+          
+          // ── Header UI ──
           if (!hasError)
             Align(
               alignment: Alignment.topCenter,
               child: SafeArea(
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
                       GestureDetector(
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              backgroundColor: AppColors.panel,
-                              title: const Text('🛡 System Architect',
-                                  style: TextStyle(color: AppColors.arc)),
-                              content: const Text(
-                                'Quishing Guard v1.0\n\n'
-                                'Designed, developed, and engineered entirely by Mohamed Abdelfattah for the 2026 Graduation Project.\n\n'
-                                'Core Tech: Flutter, Python, Shannon Entropy Heuristics, Punycode & Homograph Detection.',
-                                style:
-                                    TextStyle(color: Colors.white, height: 1.5),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Acknowledge',
-                                      style: TextStyle(color: AppColors.amber)),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                        child: _TopChip(
-                            icon: '🛡',
-                            label: 'Quishing Guard',
-                            color: AppColors.arc),
+                        onTap: () => _showArchitectInfo(context),
+                        child: _TopChip(icon: '🛡', label: 'Quishing Guard', color: AppColors.arc),
                       ),
                       const Spacer(),
                       _IconBtn(
@@ -314,11 +311,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                 ),
               ),
             ),
+
+          // ── Footer UI ──
           if (!hasError)
             Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
+              left: 0, right: 0, bottom: 0,
               child: SafeArea(
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -326,46 +323,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                     gradient: LinearGradient(
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
-                      colors: [
-                        AppColors.void_bg,
-                        AppColors.void_bg.withOpacity(0)
-                      ],
+                      colors: [AppColors.void_bg, AppColors.void_bg.withOpacity(0)],
                     ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppColors.panel.withOpacity(.9),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.rim),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.qr_code_scanner_rounded,
-                                size: 14, color: AppColors.arc),
-                            const SizedBox(width: 8),
-                            Text(scanState.statusMsg,
-                                style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 11,
-                                    color: AppColors.arc)),
-                          ],
-                        ),
-                      ),
+                      _StatusIndicator(msg: scanState.statusMsg),
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          // Hide Gallery button if running on Vercel/Web
                           if (!kIsWeb) ...[
                             Expanded(
                               child: _CtrlBtn(
-                                icon: '🖼',
-                                label: 'Gallery',
+                                icon: '🖼', label: 'Gallery',
                                 onTap: ref.read(scannerStateProvider.notifier).scanFromGallery,
                               ),
                             ),
@@ -373,16 +344,14 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           ],
                           Expanded(
                             child: _CtrlBtn(
-                              icon: '📋',
-                              label: 'History',
+                              icon: '📋', label: 'History',
                               onTap: () => context.push('/history'),
                             ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: _CtrlBtn(
-                              icon: '▶',
-                              label: 'Demo',
+                              icon: '▶', label: 'Demo',
                               onTap: ref.read(scannerStateProvider.notifier).runDemo,
                               highlight: true,
                             ),
@@ -390,41 +359,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // ── YOUR DIGITAL SIGNATURE (FIXED FOR OVERFLOW) ──
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.code_rounded,
-                                size: 12, color: AppColors.muted),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                '<\\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
-                                textAlign: TextAlign.center,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 9,
-                                  color: AppColors.muted.withOpacity(0.7),
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _DigitalSignature(),
                     ],
                   ),
                 ),
               ),
             ),
+
           if (isLoading) Positioned.fill(child: const QGLoader()),
+          
           if (hasError)
             Positioned.fill(
               child: SecurityErrorWidget(
-                exception: scanState.apiException!,
+                // Prioritize ApiException mapping, fallback to generic errorMsg
+                exception: scanState.apiException ?? ApiException(scanState.errorMsg ?? 'Unknown Error'),
                 onRetry: () => ref.read(scannerStateProvider.notifier).reset(),
               ),
             ),
@@ -432,15 +380,85 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       ),
     );
   }
+
+  void _showArchitectInfo(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: const Text('🛡 System Architect', style: TextStyle(color: AppColors.arc)),
+        content: const Text(
+          'Quishing Guard v2.0\n\n'
+          'Designed, developed, and engineered by Mohamed Abdelfattah for the 2026 Graduation Project.\n\n'
+          'Core Tech: Flutter, Python, Shannon Entropy Heuristics, Punycode & Homograph Detection, OpenCV WeChat CNN Decoder.',
+          style: TextStyle(color: Colors.white, height: 1.5, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Acknowledge', style: TextStyle(color: AppColors.amber)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// ── Shared Widgets ──────────────────────────────────────────────────────────
+// ── Sub-Widgets ──────────────────────────────────────────────────────────────
+
+class _StatusIndicator extends StatelessWidget {
+  final String msg;
+  const _StatusIndicator({required this.msg});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.panel.withOpacity(.9),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.rim),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.qr_code_scanner_rounded, size: 14, color: AppColors.arc),
+            const SizedBox(width: 8),
+            Text(msg, style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: AppColors.arc)),
+          ],
+        ),
+      );
+}
+
+class _DigitalSignature extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.code_rounded, size: 12, color: AppColors.muted),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            '<\\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 9,
+              color: AppColors.muted.withOpacity(0.7),
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
 class _TopChip extends StatelessWidget {
   final String icon, label;
   final Color color;
-  const _TopChip(
-      {required this.icon, required this.label, required this.color});
+  const _TopChip({required this.icon, required this.label, required this.color});
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -451,12 +469,7 @@ class _TopChip extends StatelessWidget {
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(icon, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
-          Text(label,
-              style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: color))
+          Text(label, style: TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.w700, color: color))
         ]),
       );
 }
@@ -465,24 +478,17 @@ class _IconBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool active;
-  const _IconBtn(
-      {required this.icon, required this.onTap, this.active = false});
+  const _IconBtn({required this.icon, required this.onTap, this.active = false});
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-              color: active
-                  ? AppColors.amber.withOpacity(.15)
-                  : AppColors.panel.withOpacity(.8),
+              color: active ? AppColors.amber.withOpacity(.15) : AppColors.panel.withOpacity(.8),
               shape: BoxShape.circle,
-              border: Border.all(
-                  color: active
-                      ? AppColors.amber.withOpacity(.4)
-                      : AppColors.rim)),
-          child: Icon(icon,
-              size: 18, color: active ? AppColors.amber : AppColors.muted),
+              border: Border.all(color: active ? AppColors.amber.withOpacity(.4) : AppColors.rim)),
+          child: Icon(icon, size: 18, color: active ? AppColors.amber : AppColors.muted),
         ),
       );
 }
@@ -491,34 +497,20 @@ class _CtrlBtn extends StatelessWidget {
   final String icon, label;
   final VoidCallback onTap;
   final bool highlight;
-  const _CtrlBtn(
-      {required this.icon,
-      required this.label,
-      required this.onTap,
-      this.highlight = false});
+  const _CtrlBtn({required this.icon, required this.label, required this.onTap, this.highlight = false});
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-              color: highlight
-                  ? AppColors.arc.withOpacity(.1)
-                  : AppColors.panel.withOpacity(.9),
+              color: highlight ? AppColors.arc.withOpacity(.1) : AppColors.panel.withOpacity(.9),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: highlight
-                      ? AppColors.arc.withOpacity(.35)
-                      : AppColors.rim)),
+              border: Border.all(color: highlight ? AppColors.arc.withOpacity(.35) : AppColors.rim)),
           child: Column(children: [
             Text(icon, style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 4),
-            Text(label,
-                style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 10,
-                    color: highlight ? AppColors.arc : AppColors.muted,
-                    letterSpacing: 0.5))
+            Text(label, style: TextStyle(fontFamily: 'monospace', fontSize: 10, color: highlight ? AppColors.arc : AppColors.muted, letterSpacing: 0.5))
           ]),
         ),
       );
