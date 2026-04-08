@@ -1,6 +1,7 @@
 # backend/app/routes/scan_image.py
 from __future__ import annotations
-from ..engine.scorer import analyse_url  # Keep the 's' here
+# FIX M-1: Removed the duplicate `from ..engine.scorer import analyse_url` that
+#           originally appeared here on line 2. The canonical import is below.
 import io
 import cv2
 import numpy as np
@@ -8,10 +9,14 @@ from flask import Blueprint, request, jsonify
 
 from ..limiter import limiter
 from ..logger import get_logger
-from ..engine.resolver import resolve # ✅ Added: Use the 11-pillar resolver
-from ..engine.scorer import analyse_url # ✅ Added: The 11-pillar engine
+from ..engine.resolver import resolve
+from ..engine.scorer import analyse_url          # canonical import — keep this one
+from ..utils.validators import validate_url_payload  # FIX H-1: import shared validator
 
-bp = Blueprint("scan_image", __name__, url_prefix="/api/v1")
+# FIX M-5: Removed url_prefix from the Blueprint() constructor.
+#           Flask uses the value passed to register_blueprint() in __init__.py;
+#           the constructor value is silently ignored and caused confusion.
+bp = Blueprint("scan_image", __name__)
 log = get_logger("scan_image")
 
 _MAX_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -72,18 +77,39 @@ def scan_image():
             pass # contrib module not installed
 
     # ── 3b. Analysis Phase (The Merge) ───────────────────────────────
+    # FIX M-2: Determine detector label ONCE before the loop.
+    #           "wechat" in locals() evaluated inside the loop stays True for
+    #           every iteration after the first WeChat-decoded code, causing all
+    #           subsequent standard-detected codes to be misattributed.
+    detector_label = "wechat_qrcode" if "wechat" in dir() else "standard"  # FIX M-2
+
     # We don't just return the URL anymore; we return the full security audit
     if decoded_list:
         for payload, bbox in zip(decoded_list, bboxes):
             if payload and payload.strip():
+                # FIX H-1: Validate the payload before passing it to the scoring engine.
+                #           Without this guard, WiFi configs ("WIFI:S:MyNetwork;T:WPA;..."),
+                #           vCards, and arbitrary text reached tldextract, ip_address(),
+                #           and requests.get() in unexpected states.
+                is_valid, reason = validate_url_payload(payload)
+                if not is_valid:
+                    found_payloads.append({
+                        "payload":     payload,
+                        "analysis":    None,
+                        "skip_reason": reason,          # FIX H-1: surface reason to caller
+                        "detector":    detector_label,  # FIX M-2: pre-computed label
+                        "bbox":        bbox.tolist() if bbox is not None else None,
+                    })
+                    continue  # FIX H-1: do not pass non-URL payloads to analyse_url()
+
                 # 🔥 THE MERGE: Run the 11-pillar analysis on the detected code
                 analysis_result = analyse_url(payload)
                 
                 found_payloads.append({
-                    "payload": payload,
-                    "analysis": analysis_result, # Full risk score, label, and checks
-                    "detector": "wechat_qrcode" if "wechat" in locals() else "standard",
-                    "bbox": bbox.tolist() if bbox is not None else None,
+                    "payload":  payload,
+                    "analysis": analysis_result,    # Full risk score, label, and checks
+                    "detector": detector_label,     # FIX M-2: pre-computed label
+                    "bbox":     bbox.tolist() if bbox is not None else None,
                 })
 
     log.info("Image scan completed", extra={
