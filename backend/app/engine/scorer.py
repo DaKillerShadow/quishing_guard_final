@@ -107,7 +107,7 @@ def trace_redirects(start_url: str) -> dict:
 
 # ── 3. The 11-Pillar Scoring Engine ──────────────────────────────────────────
 
- def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
+def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     """Calculates the 11-pillar risk score for a given URL."""
     checks = []
 
