@@ -21,7 +21,8 @@ final apiServiceProvider = Provider<ApiService>((ref) {
   ));
 
   // --- Auth Interceptor ---
-  // Automatically attaches the JWT to admin requests if it exists in storage
+  // ✅ SEC-01: This is the ONLY place the token is attached.
+  // It selectively applies the JWT only to paths containing '/admin'.
   dio.interceptors.add(InterceptorsWrapper(
     onRequest: (options, handler) async {
       if (options.path.contains('/admin')) {
@@ -44,9 +45,10 @@ class ApiService {
 
   // ── Public & Utility Endpoints ─────────────────────────────────────────────
 
+  // ✅ BUG-01: Path corrected to match Flask blueprint
   Future<void> isHealthy() async {
     try {
-      await _dio.get('/health');
+      await _dio.get('/api/v1/health');
     } on DioException catch (e) {
       throw _map(e);
     }
@@ -98,8 +100,7 @@ class ApiService {
       if (token != null) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('admin_token', token);
-        // Apply token immediately to current dio instance instance
-        _dio.options.headers['Authorization'] = 'Bearer $token';
+        // ✅ SEC-01 FIXED: Global header mutation removed.
       }
       return token;
     } on DioException catch (e) {
@@ -110,7 +111,7 @@ class ApiService {
   Future<void> adminLogout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('admin_token');
-    _dio.options.headers.remove('Authorization');
+    // Header cleanup is handled implicitly because interceptor won't find a token.
   }
 
   // ── Admin Dashboard & Moderation ───────────────────────────────────────────
@@ -127,7 +128,8 @@ class ApiService {
   Future<List<Map<String, dynamic>>> adminPendingReports() async {
     try {
       final r = await _dio.get('/api/v1/admin/blocklist/pending');
-      final list = r.data['reports'] as List? ?? [];
+      // ✅ BUG-02 FIXED: Matches Flask response key 'pending'
+      final list = r.data['pending'] as List? ?? [];
       return list.map((e) => e as Map<String, dynamic>).toList();
     } on DioException catch (e) {
       throw _map(e);
@@ -136,7 +138,8 @@ class ApiService {
 
   Future<void> adminApprove(int id) async {
     try {
-      await _dio.post('/api/v1/admin/approve/$id');
+      // ✅ BUG-03 FIXED: Corrected path and body-based ID
+      await _dio.post('/api/v1/admin/blocklist/approve', data: {'id': id});
     } on DioException catch (e) {
       throw _map(e);
     }
@@ -144,7 +147,8 @@ class ApiService {
 
   Future<void> adminReject(int id) async {
     try {
-      await _dio.post('/api/v1/admin/reject/$id');
+      // ✅ BUG-04 FIXED: Corrected path and body-based ID
+      await _dio.post('/api/v1/admin/blocklist/reject', data: {'id': id});
     } on DioException catch (e) {
       throw _map(e);
     }
@@ -153,11 +157,9 @@ class ApiService {
   // ── Local State & Config ───────────────────────────────────────────────────
 
   Future<void> loadSavedToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('admin_token');
-    if (token != null) {
-      _dio.options.headers['Authorization'] = 'Bearer $token';
-    }
+    // ✅ SEC-01 FIXED: Just ensures token is in storage. 
+    // The interceptor reads it from storage per request.
+    await SharedPreferences.getInstance();
   }
 
   void updateBaseUrl(String newUrl) {
