@@ -94,16 +94,30 @@ class ScannerController extends StateNotifier<ScannerState> {
   }
 
   Future<void> _analyse(String url) async {
+    // ── 1. Normalization Logic (Bare Domain Fix) ──
+    String normalizedUrl = url.trim();
+    
+    // Check if it has a scheme (http, https, etc). 
+    final hasScheme = RegExp(r'^[a-z]+://', caseSensitive: false).hasMatch(normalizedUrl);
+    
+    if (!hasScheme) {
+      // If no protocol is present, we prepend http:// to satisfy the backend validator
+      normalizedUrl = 'http://$normalizedUrl'; 
+    }
+
     state = state.copyWith(
       state: ScanState.analysing,
       statusMsg: '✓ QR detected — analysing…',
     );
 
     try {
-      final result = await _ref.read(apiServiceProvider).analyseUrl(url);
+      // Use normalizedUrl for the API call
+      final result = await _ref.read(apiServiceProvider).analyseUrl(normalizedUrl);
       await _ref.read(historyProvider.notifier).add(result);
 
       state = state.copyWith(state: ScanState.done, statusMsg: 'Analysis Complete');
+      
+      // Trigger navigation event
       _ref.read(scanEventProvider.notifier).state = result;
       
     } on ApiException catch (e) {
@@ -210,7 +224,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     }
   }
 
-  // FIXED: Added async/await and robust state checks to manage sensor lifecycle
   Future<void> _startCamera() async {
     if (_isCameraActive || !mounted) return;
     try {
@@ -224,7 +237,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     }
   }
 
-  // FIXED: Explicitly stop the camera to release hardware lock
   Future<void> _stopCamera() async {
     if (!_isCameraActive) return;
     try {
@@ -251,8 +263,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     final isLoading = scanState.state == ScanState.analysing || scanState.state == ScanState.scanning;
     final hasError = scanState.apiException != null || (scanState.state == ScanState.error && scanState.errorMsg != null);
 
-    // FIXED: Use 'await' to pause execution while the user is on the Preview screen.
-    // The camera is stopped before moving and restarted upon return.
     ref.listen(scanEventProvider, (previous, next) async {
       if (next != null) {
         await _stopCamera(); 
@@ -411,4 +421,3 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   }
 }
 
-// ... (Sub-widgets remain unchanged)
