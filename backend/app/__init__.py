@@ -53,6 +53,17 @@ def create_app(test_config: dict | None = None) -> Flask:
     if test_config:
         app.config.update(test_config)
 
+    # ── Admin password default guard (audit Section 6) ────────────────────
+    # Warn loudly if the insecure default password is still set.
+    # This does not block startup, but the warning will appear in server logs.
+    if not test_config and app.config["ADMIN_PASSWORD"] == "change-me":
+        import warnings
+        warnings.warn(
+            "ADMIN_PASSWORD is using the insecure default 'change-me'. "
+            "Set the ADMIN_PASSWORD environment variable before deploying.",
+            stacklevel=2,
+        )
+
     # ── Initialise extensions ──────────────────────────────────────────────
     db.init_app(app)
     limiter.init_app(app)
@@ -119,3 +130,4 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     log.info("Quishing Guard app created")
     return app
+
