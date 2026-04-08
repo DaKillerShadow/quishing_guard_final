@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.engine.entropy    import dga_score
-from app.engine.scorer     import analyze_url
+from app.engine.scorer     import analyse_url
 from app.engine.reputation import is_allowlisted, is_blocklisted, is_highly_trusted
 from app.utils.validators  import validate_url_payload
 
@@ -41,7 +41,7 @@ class TestReputation:
 class TestScorer:
     def test_all_8_checks_present(self):
         """Ensure the engine evaluates all 8 indicators defined in the report."""
-        result = analyze_url("https://example.com")
+        result = analyse_url("https://example.com")
         check_names = {c['name'] for c in result['checks']}
         expected = {
             "ip_literal", "punycode", "dga_entropy", "redirect_depth",
@@ -51,7 +51,7 @@ class TestScorer:
 
     def test_reputation_score_reduction(self):
         """Trusted domains should have their heuristic score slashed."""
-        result = analyze_url("http://google.com/verify-login-update")
+        result = analyse_url("http://google.com/verify-login-update")
         assert result['risk_score'] < 10 
         assert result['risk_label'] == "safe"
 
@@ -71,14 +71,14 @@ def run_verbose_test():
 
     # Test Case 1: High Reputation
     print("🔍 [TEST 1] Legitimate Domain: google.com")
-    res1 = analyze_url("https://google.com")
+    res1 = analyse_url("https://google.com")
     print(f"   ➤ Score: {res1['risk_score']} | Label: {res1['risk_label'].upper()}")
     print(f"   ➤ Assessment: {res1['overall_assessment']}\n")
 
     # Test Case 2: Phishing Simulation
     phish_url = "https://auth.verify.secure.update.x7z9q2mwpb.ru"
     print(f"🔍 [TEST 2] Deceptive Link: {phish_url}")
-    res2 = analyze_url(phish_url)
+    res2 = analyse_url(phish_url)
     
     print(f"   ➤ Score: {res2['risk_score']} | Label: {res2['risk_label'].upper()}")
     print(f"   ➤ Triggered Threat Indicators:")

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, current_app
 
 from ..engine.resolver   import resolve
-from ..engine.scorer     import analyze_url
+from ..engine.scorer     import analyse_url
 from ..engine.reputation import is_allowlisted, is_blocklisted
 from ..utils.validators  import validate_url_payload
 from ..models.db_models  import ScanLog, generate_scan_id # Import the generator
@@ -63,7 +63,7 @@ def analyse():
             blocklisted = is_blocklisted(resolved_url)
 
     # 4. Heuristic Analysis (Passes reputation flags for weighted scoring)
-    result_data = analyze_url(
+    result_data = analyse_url(
         url=resolved_url, 
         blocklisted=blocklisted, 
         allowlisted=allowlisted

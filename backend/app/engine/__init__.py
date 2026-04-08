@@ -15,7 +15,7 @@ from .scorer import analyse_url
 # Alphabetized for clarity and PEP 8 compliance
 __all__ = (
     "add_to_blocklist",
-    "analyze_url",
+    "analyse_url",
     "dga_score",
     "EntropyResult",
     "is_allowlisted",
