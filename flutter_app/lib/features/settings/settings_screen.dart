@@ -1,11 +1,10 @@
-// ADD THIS LINE AT THE TOP:
-import '../../core/services/history_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/api_service.dart';
+import '../../core/services/history_service.dart'; // Added: Resolves the historyProvider error
 import '../../core/utils/app_constants.dart';
 import '../../shared/theme/app_theme.dart';
 
@@ -357,3 +356,4 @@ class _Row extends StatelessWidget {
         ]),
       );
 }
+
