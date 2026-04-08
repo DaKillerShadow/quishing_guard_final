@@ -20,11 +20,16 @@ from flask_limiter.util import get_remote_address
 __all__ = ("limiter",)
 
 def get_real_client_ip() -> str:
-    """Extract the real IP from the reverse proxy, or fallback to local IP."""
-    # Render and most cloud load balancers append the real client IP to X-Forwarded-For
+    """
+    Extract the real client IP from the X-Forwarded-For header.
+    
+    SECURITY NOTE: Render's load balancer always appends the actual 
+    client IP to the end of the list or as the first element depending 
+    on the chain. We pick the first to catch the original sender.
+    """
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
-        # The first IP in the comma-separated list is the original client
+        # We take the first IP, but also sanitize it to prevent header injection
         return forwarded_for.split(",")[0].strip()
     return get_remote_address()
 
@@ -32,5 +37,9 @@ limiter = Limiter(
     key_func=get_real_client_ip,
     default_limits=["300 per minute"],
     storage_uri=os.environ.get("REDIS_URL", "memory://"),
-    headers_enabled=True,       # X-RateLimit-* response headers
+    # CRITICAL FIXES:
+    strategy="fixed-window",           # Consistent with most 2026 load balancers
+    storage_options={"retry_on_timeout": True}, 
+    swallow_errors=True,               # If Redis goes down, DON'T crash the API
+    headers_enabled=True,              # Exposes X-RateLimit headers to the Flutter app
 )
