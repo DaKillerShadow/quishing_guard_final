@@ -35,12 +35,11 @@ class LessonModel {
                '"google.com". Attackers use Domain Generation Algorithms (DGA) to '
                'create thousands of disposable random domains, making blocklisting '
                'impractical. Shannon Entropy — a mathematical measure of randomness '
-               'developed by Claude Shannon in 1948 — detects this pattern. Domains '
-               'scoring above 3.2 bits per character are flagged as suspicious.',
+               '— detects this pattern.',
       example: 'kzxwmqbvptjd.ru',
       tip:     'If a domain name looks like keyboard mashing, do not proceed. '
                'Navigate to the official site by typing its address directly into '
-               'your browser instead of following the QR link.',
+               'your browser instead.',
     ),
     'punycode': LessonModel(
       key:     'punycode',
@@ -51,13 +50,11 @@ class LessonModel {
                'clone a trusted brand.',
       body:    'The IDN Homograph Attack replaces familiar Latin letters with '
                'visually identical characters from other alphabets — for example, '
-               'the Cyrillic "а" (U+0430) looks identical to the Latin "a" (U+0061). '
-               'Browsers encode these substitutions as Punycode (xn-- prefix). '
-               'On a small mobile screen the URL looks completely legitimate.',
+               'the Cyrillic "а" looks identical to the Latin "a". '
+               'Browsers encode these substitutions as Punycode (xn-- prefix).',
       example: 'xn--pple-43d.com  →  looks like: apple.com',
       tip:     'Before tapping any link, check the address bar for "xn--". '
-               'Any link using Punycode to impersonate a known brand is an active '
-               'attack. Report it immediately.',
+               'Any link using Punycode to impersonate a known brand is an active attack.',
     ),
     'ip_literal': LessonModel(
       key:     'ip_literal',
@@ -67,14 +64,11 @@ class LessonModel {
       summary: 'This link points to a numbered server address — real companies '
                'never do this for customer-facing pages.',
       body:    'Legitimate organisations invest in memorable domain names. A link '
-               'pointing directly to "http://185.220.101.52/login" skips the domain '
-               'name system entirely. Phishing kits frequently use raw IP addresses '
-               'for short-lived credential-harvesting pages abandoned before '
-               'investigators can act.',
+               'pointing directly to a raw IP skips the domain name system entirely. '
+               'Phishing kits frequently use raw IP addresses for short-lived credential-harvesting.',
       example: 'http://185.220.101.52/secure/account/verify',
       tip:     'Never enter your credentials on a page whose URL consists of '
-               'numbers in the format 0–255.0–255.0–255.0–255. This is a '
-               'near-certain indicator of malicious intent.',
+               'numbers separated by dots. This is a near-certain indicator of malicious intent.',
     ),
     'redirect_depth': LessonModel(
       key:     'redirect_depth',
@@ -84,14 +78,51 @@ class LessonModel {
       summary: 'This link bounced through 3 or more servers before reaching its '
                'destination — a classic URL-cloaking technique.',
       body:    'Attackers chain redirects through legitimate-looking services '
-               '(link shorteners, marketing trackers, analytics platforms) to '
-               'conceal the final malicious destination from email security scanners. '
+               'to conceal the final malicious destination from security scanners. '
                'Quishing Guard followed the full chain safely so you can see exactly '
                'where you would have ended up.',
-      example: 'bit.ly/3xyz → tracker.io/hop → redirect.net → evil.ru/login',
+      example: 'bit.ly/xyz → tracker.io/hop → redirect.net → evil.ru/login',
       tip:     'When a QR code needs 3 or more redirects to reach its destination, '
-               'that is a major red flag. Only proceed if the final URL belongs to '
-               'a domain you recognise and expected to visit.',
+               'that is a major red flag.',
+    ),
+    // NEWLY ADDED THREATS FROM BACKEND
+    'authority_spoofing': LessonModel(
+      key:     'authority_spoofing',
+      emoji:   '🥸',
+      type:    'Authority Spoofing (@ Mask)',
+      title:   'Domain Masking Detected',
+      summary: 'This link uses a fake username to trick you into reading the wrong domain.',
+      body:    'URLs allow a username to be placed before the actual domain, separated by an "@" symbol. '
+               'Attackers put a trusted brand name in the username slot to trick your eyes, '
+               'while your browser ignores it and takes you to the real, malicious destination.',
+      example: 'https://www.paypal.com-secure@evil.com/login',
+      tip:     'Always look at the word immediately preceding the first single forward-slash (/) '
+               'or the @ symbol. That is the true destination.',
+    ),
+    'url_shortener': LessonModel(
+      key:     'url_shortener',
+      emoji:   '🔗',
+      type:    'Hidden Destination',
+      title:   'URL Shortener Abuse',
+      summary: 'This QR code hides its true destination behind a link shortener.',
+      body:    'While URL shorteners are common on Twitter or SMS, there is rarely a legitimate '
+               'reason to use them in a QR code, since a QR code can hold a massive URL natively. '
+               'Attackers use them so you cannot see where the QR code leads before scanning it.',
+      example: 'https://bit.ly/3xYz8',
+      tip:     'Never trust a shortened link in a QR code. Always use a scanner that unrolls '
+               'the link safely before you visit it.',
+    ),
+    'html_evasion': LessonModel(
+      key:     'html_evasion',
+      emoji:   '👻',
+      type:    'HTML Meta-Refresh',
+      title:   'Hidden HTML Evasion Detected',
+      summary: 'The webpage tried to invisibly redirect you to a new destination.',
+      body:    'Instead of using standard HTTP redirects, the attacker loaded a blank webpage '
+               'with a hidden HTML tag that instantly forces your browser to load a malicious page. '
+               'This is done specifically to bypass automated security scanners.',
+      example: '<meta http-equiv="refresh" content="0; url=http://evil.com">',
+      tip:     'If a webpage flashes blank before loading a login screen, close your browser immediately.',
     ),
     'generic': LessonModel(
       key:     'generic',
@@ -105,11 +136,25 @@ class LessonModel {
                'URL is completely hidden until the code is scanned.',
       example: 'QR code on a parking meter directing to a counterfeit payment portal',
       tip:     'Treat unexpected QR codes in emails, PDFs, posters, or physical '
-               'surfaces with scepticism. If you did not seek out this QR code '
-               'deliberately, do not open the link it contains.',
+               'surfaces with scepticism.',
     ),
   };
 
-  static LessonModel forThreat(String? topThreat) =>
-      catalogue[topThreat] ?? catalogue['generic']!;
+  /// Finds the highest scoring triggered check from the backend JSON array
+  /// and returns the corresponding lesson.
+  static LessonModel fromChecks(List<dynamic> checks) {
+    if (checks.isEmpty) return catalogue['generic']!;
+
+    // Filter only triggered checks
+    final triggeredChecks = checks.where((c) => c['triggered'] == true).toList();
+    if (triggeredChecks.isEmpty) return catalogue['generic']!;
+
+    // Sort by score descending
+    triggeredChecks.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+
+    // Get the name of the highest scoring check
+    final String worstThreatName = triggeredChecks.first['name'] as String;
+
+    return catalogue[worstThreatName] ?? catalogue['generic']!;
+  }
 }
