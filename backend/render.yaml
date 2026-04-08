@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: quishing-guard-api
+    env: python
+    plan: starter # Upgraded from free
+    
+    # 1. Faster builds & explicit Python version
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    # 2. FIXED: Pre-deploy command handles DB tables and Seeding
+    # This runs ONCE per deploy before the web server goes live.
+    preDeployCommand: "python -c 'from app import create_app, db; from app.engine.reputation import seed_database; app=create_app(); ctx=app.app_context(); ctx.push(); db.create_all(); seed_database()'"
+    
+    # 3. Optimized for 512MB RAM
+    startCommand: gunicorn -w 1 --timeout 90 -b 0.0.0.0:$PORT "app:create_app()"
+    
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: quishing-guard-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.11.8 # Stick to a stable version for production
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: JWT_EXPIRY_HOURS
+        value: "24"
+      - key: MAX_REDIRECT_HOPS
+        value: "10"
+      - key: RESOLVER_TIMEOUT
+        value: "5"
+      - key: CORS_ORIGINS
+        value: "https://mohamed-abdelfattah-h.github.io" # Updated to your likely GH handle
+      - key: LOG_LEVEL
+        value: INFO
+
+# Persistent PostgreSQL
+databases:
+  - name: quishing-guard-db
+    plan: starter # Matches your service plan for better performance
