@@ -17,21 +17,19 @@ from dataclasses import dataclass
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 # Using ratios (0.0 to 1.0) makes the engine length-agnostic.
-# 0.75 means the string is 75% as random as mathematically possible for its length.
+# 0.85 means the string is 85% as random as mathematically possible for its length.
 ENTROPY_RATIO_SAFE = 0.75   
 ENTROPY_RATIO_WARN = 0.85   
 MIN_LABEL_LEN      = 6     
 
-
 @dataclass
 class EntropyResult:
     label: str          
-    entropy: float      # Raw Shannon entropy
+    entropy: float      # Raw Shannon entropy (kept for scorer.py UI metrics)
     normalized: float   # Ratio of (entropy / max_possible_entropy)
-    is_dga: bool        
+    is_dga: bool        # The definitive boolean for the heuristics engine
     is_suspicious: bool 
     confidence: str     
-
 
 def _shannon_data(s: str) -> tuple[float, float]:
     """
@@ -54,11 +52,9 @@ def _shannon_data(s: str) -> tuple[float, float]:
     
     return raw_entropy, normalized
 
-
 def _clean_label(label: str) -> str:
     """Strip hyphens and digits for a conservative entropy check (false-positive guard)."""
     return re.sub(r"[\d\-]", "", label.lower())
-
 
 def dga_score(sld: str) -> EntropyResult:
     """
@@ -101,3 +97,4 @@ def dga_score(sld: str) -> EntropyResult:
         is_suspicious=is_suspicious,
         confidence=confidence,
     )
+
