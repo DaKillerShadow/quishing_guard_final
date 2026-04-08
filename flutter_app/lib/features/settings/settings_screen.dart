@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/api_service.dart';
-import '../../core/services/history_service.dart';
 import '../../core/utils/app_constants.dart';
 import '../../shared/theme/app_theme.dart';
 
@@ -24,6 +23,7 @@ class _State extends ConsumerState<SettingsScreen> {
   bool _loaded = false;
   bool _loggingIn = false;
   bool _isAdmin = false;
+  bool _obscurePass = true; // Added: Password visibility toggle
 
   @override
   void initState() {
@@ -46,6 +46,7 @@ class _State extends ConsumerState<SettingsScreen> {
     if (_loaded) return;
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
+    
     setState(() {
       _apiCtrl.text = p.getString('apiBase') ?? AppConstants.defaultApiBaseUrl;
       _autoLesson = p.getBool('autoLesson') ?? true;
@@ -53,6 +54,8 @@ class _State extends ConsumerState<SettingsScreen> {
       _isAdmin = p.getString('admin_token') != null;
       _loaded = true;
     });
+    
+    // Ensure the Dio instance is synced with the saved token on load
     await ref.read(apiServiceProvider).loadSavedToken();
   }
 
@@ -63,8 +66,9 @@ class _State extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _adminLogin() async {
+    if (_userCtrl.text.isEmpty || _passCtrl.text.isEmpty) return;
+    
     setState(() => _loggingIn = true);
-
     try {
       final token = await ref
           .read(apiServiceProvider)
@@ -79,16 +83,13 @@ class _State extends ConsumerState<SettingsScreen> {
         });
         _passCtrl.clear();
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Admin login successful ✓')));
-      } else {
-        setState(() => _loggingIn = false);
+            const SnackBar(content: Text('Admin authorization granted ✓')));
       }
     } catch (e) {
       if (!mounted) return;
-
       setState(() => _loggingIn = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Login failed: ${e.toString()}'),
+        content: Text('Auth failed: ${e.toString()}'),
         backgroundColor: AppColors.ember,
       ));
     }
@@ -105,14 +106,16 @@ class _State extends ConsumerState<SettingsScreen> {
           color: AppColors.muted,
           onPressed: () => context.pop(),
         ),
-        title: const Text('Settings'),
+        title: const Text('System Settings'),
       ),
-      body: ListView(children: [
-        _Group(label: 'API Configuration', children: [
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 40),
+        children: [
+        _Group(label: 'Network Configuration', children: [
           _Row(
             icon: '🌐',
-            title: 'Backend API URL',
-            subtitle: 'Flask server address',
+            title: 'Backend Node URL',
+            subtitle: 'Target Flask API address',
             trailing: const SizedBox.shrink(),
           ),
           Padding(
@@ -121,67 +124,60 @@ class _State extends ConsumerState<SettingsScreen> {
               Expanded(
                 child: TextField(
                   controller: _apiCtrl,
-                  style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      color: AppColors.textColor),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.textColor),
                   decoration: const InputDecoration(
-                      hintText: 'http://192.168.x.x:5000', isDense: true),
+                      hintText: 'https://api.example.com', isDense: true),
                 ),
               ),
               const SizedBox(width: 10),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12)),
                 onPressed: () async {
-                  await _save('apiBase', _apiCtrl.text.trim());
-                  ref
-                      .read(apiServiceProvider)
-                      .updateBaseUrl(_apiCtrl.text.trim());
-                  if (mounted)
+                  String url = _apiCtrl.text.trim();
+                  // Sanitization logic
+                  if (!url.startsWith('http')) url = 'https://$url';
+                  
+                  await _save('apiBase', url);
+                  ref.read(apiServiceProvider).updateBaseUrl(url);
+                  
+                  if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('API URL saved')));
+                        const SnackBar(content: Text('API Configuration Updated')));
+                  }
                 },
-                child: const Text('SAVE'),
+                child: const Text('APPLY'),
               ),
             ]),
           ),
         ]),
-        _Group(label: 'Admin Panel', children: [
+
+        _Group(label: 'Administrative Access', children: [
           if (_isAdmin) ...[
             _Row(
               icon: '🛡',
-              title: 'Admin session active',
-              subtitle: 'You can access the admin dashboard',
+              title: 'Administrator Mode',
+              subtitle: 'Full access to reputation database',
               trailing: TextButton(
-                style: TextButton.styleFrom(foregroundColor: AppColors.ember),
                 onPressed: () async {
                   await ref.read(apiServiceProvider).adminLogout();
                   if (!mounted) return;
                   setState(() => _isAdmin = false);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Logged out')));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admin session terminated')));
                 },
-                child: const Text('LOGOUT', style: TextStyle(fontSize: 11)),
+                child: const Text('LOGOUT', style: TextStyle(color: AppColors.ember, fontSize: 11, fontWeight: FontWeight.bold)),
               ),
             ),
-            _Row(
-              icon: '📊',
-              title: 'Open Admin Dashboard',
-              subtitle: 'Review pending domain reports',
-              trailing: IconButton(
-                // FIXED: Removed the extra typo and double comma here
-                icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                color: AppColors.arc,
-                onPressed: () => context.push('/admin'),
-              ),
+            ListTile(
+              leading: const Text('📊', style: TextStyle(fontSize: 16)),
+              title: const Text('Launch Admin Dashboard', style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.arc, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Review reports and audit logs', style: TextStyle(fontSize: 10, color: AppColors.muted)),
+              trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.arc),
+              onTap: () => context.push('/admin'),
             ),
           ] else ...[
             _Row(
               icon: '🔑',
-              title: 'Admin Login',
-              subtitle: 'Required to manage the blocklist',
+              title: 'Admin Authentication',
+              subtitle: 'Login to manage the global blocklist',
               trailing: const SizedBox.shrink(),
             ),
             Padding(
@@ -189,42 +185,41 @@ class _State extends ConsumerState<SettingsScreen> {
               child: Column(children: [
                 TextField(
                   controller: _userCtrl,
-                  style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      color: AppColors.textColor),
-                  decoration: const InputDecoration(
-                      labelText: 'Username', isDense: true),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.textColor),
+                  decoration: const InputDecoration(labelText: 'Username', isDense: true),
                 ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _passCtrl,
-                  obscureText: true,
-                  style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      color: AppColors.textColor),
-                  decoration: const InputDecoration(
-                      labelText: 'Password', isDense: true),
+                  obscureText: _obscurePass,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.textColor),
+                  decoration: InputDecoration(
+                    labelText: 'Password', 
+                    isDense: true,
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscurePass ? Icons.visibility_off : Icons.visibility, size: 16),
+                      onPressed: () => setState(() => _obscurePass = !_obscurePass),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _loggingIn ? null : _adminLogin,
-                    child: Text(
-                        _loggingIn ? '⏳ Logging in…' : '🔐  LOGIN AS ADMIN'),
+                    child: Text(_loggingIn ? 'VERIFYING…' : '🔐  AUTHENTICATE'),
                   ),
                 ),
               ]),
             ),
           ],
         ]),
-        _Group(label: 'Learning & Notifications', children: [
+
+        _Group(label: 'Security Behavior', children: [
           _Row(
             icon: '📚',
-            title: 'Auto-show micro-lessons',
-            subtitle: 'Show a lesson after high-risk scans',
+            title: 'Adaptive Learning',
+            subtitle: 'Auto-show lessons for high-risk scans',
             trailing: Switch(
               value: _autoLesson,
               activeColor: AppColors.arc,
@@ -236,8 +231,8 @@ class _State extends ConsumerState<SettingsScreen> {
           ),
           _Row(
             icon: '🔔',
-            title: 'Scan notifications',
-            subtitle: 'Alert when a cached link is newly flagged',
+            title: 'Real-time Alerts',
+            subtitle: 'Notify if history items are flagged',
             trailing: Switch(
               value: _notifications,
               activeColor: AppColors.arc,
@@ -248,49 +243,40 @@ class _State extends ConsumerState<SettingsScreen> {
             ),
           ),
         ]),
-        _Group(label: 'Data & Privacy', children: [
+
+        _Group(label: 'Maintenance', children: [
           _Row(
             icon: '🗑',
-            title: 'Clear scan history',
-            subtitle: 'Permanently delete all stored scans',
+            title: 'Purge Local History',
+            subtitle: 'Permanently erase all scan telemetry',
             trailing: TextButton(
-              style: TextButton.styleFrom(foregroundColor: AppColors.ember),
               onPressed: () => _confirmClear(context),
-              child: const Text('CLEAR', style: TextStyle(fontSize: 11)),
+              child: const Text('PURGE', style: TextStyle(color: AppColors.ember, fontSize: 11, fontWeight: FontWeight.bold)),
             ),
           ),
         ]),
-        _Group(label: 'About', children: [
-          _Row(
-            icon: 'ℹ️',
-            title: 'Project Info',
-            subtitle: 'Detailed app & developer information',
-            trailing: TextButton(
-              style: TextButton.styleFrom(foregroundColor: AppColors.arc),
-              onPressed: () => context.push('/about'),
-              child: const Text('VIEW', style: TextStyle(fontSize: 11)),
-            ),
+
+        _Group(label: 'System Manifest', children: [
+          ListTile(
+            leading: const Text('ℹ️', style: TextStyle(fontSize: 16)),
+            title: const Text('View Project Credits', style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.textColor)),
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+            onTap: () => context.push('/about'),
           ),
+          const Divider(height: 1, color: AppColors.rim),
           ...{
-            'App': AppConstants.appName,
+            'Core Engine': '8-indicator heuristic suite', // SYNCED
+            'Algorithm': 'Shannon Entropy (3.2b threshold)',
+            'CV Backend': 'OpenCV WeChat CNN model',
+            'Network': 'JWT HS256 over HTTPS',
             'Version': AppConstants.appVersion,
-            'Engine': '8-check heuristic + Shannon Entropy',
-            'Database': 'SQLAlchemy (SQLite / PostgreSQL)',
-            'Auth': 'JWT HS256 admin tokens',
-            'Rate Limit': 'Flask-Limiter (30 req/min)',
-            'QR Backend': 'OpenCV + WeChatQRCode',
           }.entries.map((e) => _Row(
                 icon: '',
                 title: e.key,
                 subtitle: '',
-                trailing: Text(e.value,
-                    style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        color: AppColors.textColor)),
+                trailing: Text(e.value, style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: AppColors.muted)),
               )),
         ]),
-        const SizedBox(height: 32),
       ]),
     );
   }
@@ -300,26 +286,17 @@ class _State extends ConsumerState<SettingsScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.panel,
-        title: const Text('Clear History'),
-        content: const Text(
-          'Delete all scan records?',
-          style: TextStyle(color: AppColors.muted),
-        ),
+        title: const Text('Confirm Purge', style: TextStyle(color: AppColors.ember)),
+        content: const Text('This will delete all local scan history. This action cannot be undone.', style: TextStyle(color: AppColors.muted)),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child:
-                const Text('Cancel', style: TextStyle(color: AppColors.muted)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL', style: TextStyle(color: AppColors.muted))),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               ref.read(historyProvider.notifier).clearAll();
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('History cleared')));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('History successfully purged')));
             },
-            child: const Text('Delete All',
-                style: TextStyle(color: AppColors.ember)),
+            child: const Text('PURGE ALL', style: TextStyle(color: AppColors.ember, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -327,7 +304,7 @@ class _State extends ConsumerState<SettingsScreen> {
   }
 }
 
-// ── Sub-widgets ───────────────────────────────────────────────────────────────
+// ── Shared UI Components ─────────────────────────────────────────────────────
 
 class _Group extends StatelessWidget {
   const _Group({required this.label, required this.children});
@@ -336,15 +313,10 @@ class _Group extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+        padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label.toUpperCase(),
-              style: const TextStyle(
-                  fontSize: 9,
-                  color: AppColors.arc,
-                  letterSpacing: 1.0,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
+          Text(label.toUpperCase(), style: const TextStyle(fontSize: 9, color: AppColors.arc, letterSpacing: 1.5, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
           Container(
             decoration: BoxDecoration(
               color: AppColors.panel,
@@ -359,43 +331,26 @@ class _Group extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  const _Row({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-  });
+  const _Row({required this.icon, required this.title, required this.subtitle, required this.trailing});
   final String icon, title, subtitle;
   final Widget trailing;
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
-            border:
-                Border(bottom: BorderSide(color: AppColors.rim, width: 0.5))),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.rim, width: 0.5))),
         child: Row(children: [
           if (icon.isNotEmpty) ...[
             Text(icon, style: const TextStyle(fontSize: 16)),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
           ],
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textColor)),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(subtitle,
-                      style: const TextStyle(
-                          fontSize: 10, color: AppColors.muted)),
-                ],
-              ])),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textColor)),
+            if (subtitle.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(subtitle, style: const TextStyle(fontSize: 10, color: AppColors.muted)),
+            ],
+          ])),
           trailing,
         ]),
       );
