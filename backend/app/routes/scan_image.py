@@ -60,29 +60,33 @@ _MAX_BYTES    = 5 * 1024 * 1024   # 5 MB
 _ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 
 
+# backend/app/blueprints/scan_image.py
+
 @bp.route("/scan-image", methods=["POST"])
 @limiter.limit("10 per minute")
 def scan_image():
-    # ── 1. Validate upload ─────────────────────────────────────────────
     if "file" not in request.files:
         return jsonify({"error": "No file field in request"}), 400
 
     file = request.files["file"]
-    raw = file.read(_MAX_BYTES + 1)
-if len(raw) > _MAX_BYTES:
-    return jsonify({"error": "Image exceeds 5 MB limit"}), 413
+    # 🔴 FIX: Single read of first 5MB + 1 byte
+    raw = file.read(5 * 1024 * 1024 + 1)
 
-# Magic-byte validation (replaces Content-Type trust)
-_MAGIC = {
-    b'\xff\xd8\xff': 'jpeg',
-    b'\x89PNG':      'png',
-    b'RIFF':         'webp',   # webp: RIFF????WEBP
-    b'BM':           'bmp',
-}
-detected = next((t for sig, t in _MAGIC.items() if raw[:len(sig)] == sig), None)
-if not detected:
-    return jsonify({"error": "File type not recognised — submit JPEG, PNG, WEBP, or BMP"}), 415
+    if len(raw) > 5 * 1024 * 1024:
+        return jsonify({"error": "Image exceeds 5 MB limit"}), 413
 
+    # 🔴 FIX: Magic-byte validation inside function scope
+    _MAGIC = {
+        b'\xff\xd8\xff': 'jpeg',
+        b'\x89PNG':      'png',
+        b'RIFF':         'webp',
+        b'BM':           'bmp',
+    }
+    detected = next((t for sig, t in _MAGIC.items() if raw[:len(sig)] == sig), None)
+    if not detected:
+        return jsonify({"error": "File type not recognised — submit JPEG, PNG, WEBP, or BMP"}), 415
+
+    # Proceed to OpenCV decode using 'raw' bytes...
     raw = file.read(_MAX_BYTES + 1)
     if len(raw) > _MAX_BYTES:
         return jsonify({"error": "Image exceeds 5 MB limit"}), 413

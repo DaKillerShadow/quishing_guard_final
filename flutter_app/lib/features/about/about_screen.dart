@@ -1,13 +1,9 @@
-// lib/features/about/about_screen.dart
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../shared/theme/app_theme.dart';
 import '../../core/utils/app_constants.dart';
 
-// FIX: was using default Flutter white theme (no AppColors), had a missing
-// const constructor, unfinished placeholder text, and no @override annotations.
-// Rebuilt to match the app's dark cybersecurity aesthetic.
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
@@ -17,19 +13,20 @@ class AboutScreen extends StatelessWidget {
       backgroundColor: AppColors.void_bg,
       appBar: AppBar(
         backgroundColor: AppColors.panel,
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
           color: AppColors.muted,
           onPressed: () => context.pop(),
         ),
-        title: const Text('About'),
+        title: const Text('About System'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── App identity ──────────────────────────────────
+            // ── App Identity & Tagline ───────────────────────────
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
@@ -44,31 +41,44 @@ class AboutScreen extends StatelessWidget {
                   Row(children: [
                     const Text('🛡', style: TextStyle(fontSize: 32)),
                     const SizedBox(width: 12),
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(
-                        AppConstants.appName,
-                        style: const TextStyle(
-                          fontFamily: 'monospace', fontSize: 20,
-                          fontWeight: FontWeight.w800, color: AppColors.arc,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start, 
+                      children: [
+                        Text(
+                          AppConstants.appName,
+                          style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 22,
+                            fontWeight: FontWeight.w800, color: AppColors.arc,
+                          ),
                         ),
-                      ),
-                      Text(
-                        'v${AppConstants.appVersion}',
-                        style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                      ),
-                    ]),
+                        // ✅ TAGLINE INTEGRATED HERE
+                        Text(
+                          AppConstants.tagline, // "Scan Before You Land"
+                          style: const TextStyle(
+                            fontSize: 12, 
+                            color: AppColors.arc, 
+                            fontWeight: FontWeight.w600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                        Text(
+                          'v${AppConstants.appVersion}',
+                          style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                        ),
+                      ]
+                    ),
                   ]),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 16),
                   const Text(
-                    'Quishing Guard is a proactive cybersecurity system designed to '
-                    'detect QR code phishing (quishing) attacks in real time. It scans '
-                    'QR codes, resolves the embedded URL through a secure backend, '
-                    'and applies 7 independent heuristic checks — including Shannon '
-                    'Entropy analysis for DGA domain detection, Punycode homograph '
-                    'detection, and redirect chain analysis — before any navigation occurs.',
+                    'Quishing Guard is a proactive Zero-Trust security system designed to '
+                    'neutralize QR code phishing (quishing) before it reaches the browser. '
+                    'Utilizing a secure Python-based resolution engine, it unrolls hidden '
+                    'redirect chains and applies 8 multi-dimensional heuristic checks — '
+                    'leveraging Normalized Shannon Entropy and IDN Homograph detection — '
+                    'to provide a real-time risk assessment of the final destination.',
                     style: TextStyle(
                       fontFamily: 'monospace', fontSize: 12,
-                      color: AppColors.muted, height: 1.7,
+                      color: AppColors.muted, height: 1.6,
                     ),
                   ),
                 ],
@@ -76,31 +86,29 @@ class AboutScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // ── Developer ────────────────────────────────────
-            _section('DEVELOPER'),
+            // ── Developer Info ──────────────────────────────────
+            _section('SYSTEM ARCHITECT'),
             _infoCard([
-              _infoRow('Name',       'Mohamed Abdelfattah'),
-              _infoRow('Project',    'Graduation Project 2026'),
-              _infoRow('Course',     'TM471 — Computer Science'),
-              _infoRow('University', 'Arab Open University'),
+              _infoRow('Engineer',    'Mohamed Abdelfattah'),
+              _infoRow('Project',     'Graduation Project 2026'),
+              _infoRow('Faculty',     'Information Technology & Computing'),
+              _infoRow('Institution', 'Arab Open University'),
             ]),
             const SizedBox(height: 16),
 
-            // ── Technical stack ───────────────────────────────
+            // ── Technical Stack ────────────────────────────────
             _section('TECHNICAL STACK'),
             _infoCard([
-              _infoRow('Mobile',    'Flutter 3.22+ · Dart 3.3+'),
-              _infoRow('Backend',   'Python 3.12 · Flask 3.0'),
-              _infoRow('Database',  'SQLAlchemy · SQLite / PostgreSQL'),
-              _infoRow('Auth',      'JWT HS256 · Flask-Limiter'),
-              _infoRow('CV Engine', 'OpenCV · WeChatQRCode'),
-              _infoRow('State',     'Flutter Riverpod'),
-              _infoRow('Routing',   'go_router'),
+              _infoRow('Frontend',  'Flutter 3.22 · Dart 3.3 · Riverpod'),
+              _infoRow('Backend',   'Python 3.12 · Flask 3.0 · JWT Auth'),
+              _infoRow('CV Engine', 'OpenCV · WeChatQRCode Decoder'),
+              _infoRow('Theory',    'Information Theory · Shannon Entropy'),
+              _infoRow('Database',  'PostgreSQL · SQLAlchemy ORM'),
             ]),
             const SizedBox(height: 16),
 
-            // ── Heuristic checks ──────────────────────────────
-            _section('HEURISTIC ENGINE — 7 CHECKS'),
+            // ── Heuristic Checks ──────────────────────────────
+            _section('HEURISTIC ENGINE — 8 CORE INDICATORS'),
             Container(
               decoration: BoxDecoration(
                 color: AppColors.panel,
@@ -108,14 +116,14 @@ class AboutScreen extends StatelessWidget {
                 border: Border.all(color: AppColors.rim),
               ),
               child: Column(children: [
-                _checkRow('Punycode / Homograph', '30 pts', 'IDN visual impersonation'),
-                _checkRow('IP Literal',           '25 pts', 'Raw IP instead of domain'),
-                _checkRow('DGA Entropy',          '20 pts', 'Shannon entropy > 3.2 bits'),
-                _checkRow('Redirect Depth',       '20 pts', '3+ redirect hops'),
-                _checkRow('Suspicious TLD',        '8 pts', 'High-abuse TLD registry'),
-                _checkRow('Subdomain Depth',       '8 pts', 'Excessive nesting'),
-                _checkRow('HTTPS Enforcement',     '7 pts', 'Unencrypted HTTP'),
-                _checkRow('Path Keywords',          '15 pts', 'Phishing keywords in URL path'),
+                _checkRow('Punycode / Homograph', '30 pts', 'Visual brand impersonation detection'),
+                _checkRow('IP Literal Host',      '25 pts', 'Raw IP detection (SSRF / evasion)'),
+                _checkRow('DGA Entropy Ratio',    '20 pts', 'Normalized H/H_max > 0.85 (DGA)'),
+                _checkRow('Redirect Depth',       '20 pts', '3+ hidden hop chain analysis'),
+                _checkRow('Path Keywords',        '15 pts', 'Regional phishing lure detection'),
+                _checkRow('Suspicious TLD',       '8 pts', 'High-abuse registry classification'),
+                _checkRow('Subdomain Depth',      '8 pts', 'Excessive label nesting (> 3)'),
+                _checkRow('HTTPS Enforcement',    '7 pts', 'Encryption status & protocol safety'),
               ]),
             ),
             const SizedBox(height: 32),
@@ -126,10 +134,10 @@ class AboutScreen extends StatelessWidget {
   }
 
   static Widget _section(String title) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.only(bottom: 8, left: 4),
     child: Text(title, style: const TextStyle(
-      fontSize: 9, color: AppColors.arc,
-      letterSpacing: 1.0, fontWeight: FontWeight.w600,
+      fontSize: 10, color: AppColors.arc,
+      letterSpacing: 1.2, fontWeight: FontWeight.bold,
     )),
   );
 
@@ -143,12 +151,12 @@ class AboutScreen extends StatelessWidget {
   );
 
   static Widget _infoRow(String label, String value) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     decoration: const BoxDecoration(
       border: Border(bottom: BorderSide(color: AppColors.rim, width: 0.5))),
     child: Row(children: [
       SizedBox(
-        width: 90,
+        width: 100,
         child: Text(label, style: const TextStyle(
           fontSize: 11, color: AppColors.muted)),
       ),
@@ -160,7 +168,7 @@ class AboutScreen extends StatelessWidget {
   );
 
   static Widget _checkRow(String name, String pts, String desc) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     decoration: const BoxDecoration(
       border: Border(bottom: BorderSide(color: AppColors.rim, width: 0.5))),
     child: Row(children: [
@@ -169,18 +177,19 @@ class AboutScreen extends StatelessWidget {
           fontFamily: 'monospace', fontSize: 11,
           fontWeight: FontWeight.w600, color: AppColors.textColor,
         )),
+        const SizedBox(height: 2),
         Text(desc, style: const TextStyle(fontSize: 10, color: AppColors.muted)),
       ])),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: AppColors.arc.withValues(alpha: .08),
+          color: AppColors.arc.withOpacity(0.08),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: AppColors.arc.withValues(alpha: .2)),
+          border: Border.all(color: AppColors.arc.withOpacity(0.2)),
         ),
         child: Text(pts, style: const TextStyle(
           fontFamily: 'monospace', fontSize: 10,
-          color: AppColors.arc, fontWeight: FontWeight.w700,
+          color: AppColors.arc, fontWeight: FontWeight.bold,
         )),
       ),
     ]),

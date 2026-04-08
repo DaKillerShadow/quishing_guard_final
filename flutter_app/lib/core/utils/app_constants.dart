@@ -4,6 +4,7 @@ class AppConstants {
   const AppConstants._();
 
   static const String appName = 'Quishing Guard';
+  static const String tagline = 'Scan Before You Land';
 
   // Aligned to '2.0.0' across all files.
   static const String appVersion = '2.0.0';

@@ -87,7 +87,7 @@ class ScanResult {
 
   // Convenience getters for UI logic
 bool get isSafe    => riskScore < 30;
-bool get isWarning => riskScore >= 30 && riskScore < 65;
+bool get isWarning => riskScore >= 30 && riskScore < 65; // Updated
 bool get isDanger  => riskScore >= 65;
   String get displayHost {
     try {

@@ -1,4 +1,3 @@
-// lib/app/router.dart
 import 'package:go_router/go_router.dart';
 
 import '../core/models/scan_result.dart';
@@ -8,9 +7,6 @@ import '../features/lesson/micro_lesson_screen.dart';
 import '../features/history/history_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/admin/admin_screen.dart';
-// FIX: AboutScreen was being opened with Navigator.push (raw imperative
-// navigation) instead of go_router. Added the /about route here so it
-// integrates with the declarative routing system like all other screens.
 import '../features/about/about_screen.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -21,16 +17,29 @@ final GoRouter appRouter = GoRouter(
       name: 'scanner',
       builder: (_, __) => const ScannerScreen(),
     ),
+    
+    // ✅ FIXED: Safety check for /preview
     GoRoute(
       path: '/preview',
       name: 'preview',
-      builder: (_, state) => SafePreviewScreen(result: state.extra as ScanResult),
+      builder: (_, state) {
+        final result = state.extra;
+        if (result is! ScanResult) return const ScannerScreen(); 
+        return SafePreviewScreen(result: result);
+      },
     ),
+
+    // ✅ FIXED: Safety check for /lesson
     GoRoute(
       path: '/lesson',
       name: 'lesson',
-      builder: (_, state) => MicroLessonScreen(result: state.extra as ScanResult),
+      builder: (_, state) {
+        final result = state.extra;
+        if (result is! ScanResult) return const ScannerScreen();
+        return MicroLessonScreen(result: result);
+      },
     ),
+
     GoRoute(
       path: '/history',
       name: 'history',

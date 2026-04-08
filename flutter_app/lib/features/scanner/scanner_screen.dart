@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
 import '../../core/utils/api_exception.dart';
+import '../../core/utils/app_constants.dart'; // ✅ Added missing import
 import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/scan_overlay.dart' hide QGLoader;
 import '../../shared/widgets/loading_indicator.dart';
@@ -130,21 +131,23 @@ class ScannerController extends StateNotifier<ScannerState> {
     state = state.copyWith(
         state: ScanState.scanning, statusMsg: '🔍 Analysing image...');
     final controller = MobileScannerController();
-    final BarcodeCapture? capture = await controller.analyzeImage(image.path);
-
-    if (capture != null && capture.barcodes.isNotEmpty) {
-      final String? code = capture.barcodes.first.rawValue;
-      if (code != null) {
-        HapticFeedback.mediumImpact();
-        await _analyse(code);
+    try {
+      final BarcodeCapture? capture = await controller.analyzeImage(image.path);
+      if (capture != null && capture.barcodes.isNotEmpty) {
+        final String? code = capture.barcodes.first.rawValue;
+        if (code != null) {
+          HapticFeedback.mediumImpact();
+          await _analyse(code);
+        }
+      } else {
+        state = state.copyWith(
+            state: ScanState.error,
+            errorMsg: 'No QR code found.',
+            statusMsg: 'Point at a QR code');
       }
-    } else {
-      state = state.copyWith(
-          state: ScanState.error,
-          errorMsg: 'No QR code found.',
-          statusMsg: 'Point at a QR code');
+    } finally {
+      controller.dispose();
     }
-    controller.dispose();
   }
 
   Future<void> runDemo() async {
@@ -244,75 +247,78 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // 1. The Camera Feed
           Positioned.fill(
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(
-                  sigmaX: hasError ? 2 : 0, sigmaY: hasError ? 2 : 0),
+                sigmaX: hasError ? 2 : 0, 
+                sigmaY: hasError ? 2 : 0,
+              ),
               child: MobileScanner(
                 controller: _cam,
                 onDetect: ref.read(scannerStateProvider.notifier).onDetect,
               ),
             ),
           ),
+
+          // 2. Scanning Frame Overlay
           const Positioned.fill(child: ScanOverlay()),
+
+          // 3. Top Navigation & Tagline
           if (!hasError)
-            Align(
-              alignment: Alignment.topCenter,
-              child: SafeArea(
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              backgroundColor: AppColors.panel,
-                              title: const Text('🛡 System Architect',
-                                  style: TextStyle(color: AppColors.arc)),
-                              content: const Text(
-                                'Quishing Guard v1.0\n\n'
-                                'Designed, developed, and engineered entirely by Mohamed Abdelfattah for the 2026 Graduation Project.\n\n'
-                                'Core Tech: Flutter, Python, Shannon Entropy Heuristics, Punycode & Homograph Detection.',
-                                style:
-                                    TextStyle(color: Colors.white, height: 1.5),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Acknowledge',
-                                      style: TextStyle(color: AppColors.amber)),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                        child: _TopChip(
-                            icon: '🛡',
-                            label: 'Quishing Guard',
-                            color: AppColors.arc),
-                      ),
-                      const Spacer(),
-                      _IconBtn(
-                        icon: Icons.flash_on_rounded,
-                        active: scanState.torchOn,
-                        onTap: () async {
-                          await _cam.toggleTorch();
-                          ref.read(scannerStateProvider.notifier).state =
-                              scanState.copyWith(torchOn: !scanState.torchOn);
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _IconBtn(
-                          icon: Icons.settings_rounded,
-                          onTap: () => context.push('/settings')),
-                    ],
+            SafeArea(
+              child: Column(
+                children: [
+                  // Top Bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => _showArchitectDialog(context),
+                          child: _TopChip(
+                              icon: '🛡',
+                              label: 'Quishing Guard',
+                              color: AppColors.arc),
+                        ),
+                        const Spacer(),
+                        _IconBtn(
+                          icon: Icons.flash_on_rounded,
+                          active: scanState.torchOn,
+                          onTap: () async {
+                            await _cam.toggleTorch();
+                            ref.read(scannerStateProvider.notifier).state =
+                                scanState.copyWith(torchOn: !scanState.torchOn);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _IconBtn(
+                            icon: Icons.settings_rounded,
+                            onTap: () => context.push('/settings')),
+                      ],
+                    ),
                   ),
-                ),
+                  
+                  // ✅ DYNAMIC TAGLINE INTEGRATION
+                  const SizedBox(height: 8),
+                  Text(
+                    AppConstants.tagline, // "Scan Before You Land"
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: 1.5,
+                      color: AppColors.textColor.withOpacity(0.6),
+                      fontStyle: FontStyle.italic,
+                      shadows: [
+                        Shadow(blurRadius: 8, color: Colors.black.withOpacity(0.8))
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
+
+          // 4. Bottom Control HUD
           if (!hasError)
             Positioned(
               left: 0,
@@ -334,9 +340,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Status Label
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
                           color: AppColors.panel.withOpacity(.9),
                           borderRadius: BorderRadius.circular(8),
@@ -345,8 +351,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.qr_code_scanner_rounded,
-                                size: 14, color: AppColors.arc),
+                            Icon(Icons.qr_code_scanner_rounded, size: 14, color: AppColors.arc),
                             const SizedBox(width: 8),
                             Text(scanState.statusMsg,
                                 style: const TextStyle(
@@ -357,41 +362,26 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         ),
                       ),
                       const SizedBox(height: 14),
+                      
+                      // Primary Actions
                       Row(
                         children: [
-                          Expanded(
-                              child: _CtrlBtn(
-                                  icon: '🖼',
-                                  label: 'Gallery',
-                                  onTap: ref
-                                      .read(scannerStateProvider.notifier)
-                                      .scanFromGallery)),
+                          Expanded(child: _CtrlBtn(icon: '🖼', label: 'Gallery', onTap: ref.read(scannerStateProvider.notifier).scanFromGallery)),
                           const SizedBox(width: 10),
-                          Expanded(
-                              child: _CtrlBtn(
-                                  icon: '📋',
-                                  label: 'History',
-                                  onTap: () => context.push('/history'))),
+                          Expanded(child: _CtrlBtn(icon: '📋', label: 'History', onTap: () => context.push('/history'))),
                           const SizedBox(width: 10),
-                          Expanded(
-                              child: _CtrlBtn(
-                                  icon: '▶',
-                                  label: 'Demo',
-                                  onTap: ref
-                                      .read(scannerStateProvider.notifier)
-                                      .runDemo,
-                                  highlight: true)),
+                          Expanded(child: _CtrlBtn(icon: '▶', label: 'Demo', onTap: ref.read(scannerStateProvider.notifier).runDemo, highlight: true)),
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // ── YOUR DIGITAL SIGNATURE (FIXED FOR OVERFLOW) ──
+
+                      // Professional Signature
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.code_rounded,
-                                size: 12, color: AppColors.muted),
+                            const Icon(Icons.code_rounded, size: 12, color: AppColors.muted),
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
@@ -414,6 +404,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                 ),
               ),
             ),
+
+          // 5. Global Loaders & Errors
           if (isLoading) Positioned.fill(child: const QGLoader()),
           if (hasError)
             Positioned.fill(
@@ -426,15 +418,36 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       ),
     );
   }
+
+  void _showArchitectDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: const Text('🛡 System Architect', style: TextStyle(color: AppColors.arc)),
+        content: const Text(
+          'Quishing Guard v1.0\n\n'
+          'Designed, developed, and engineered entirely by Mohamed Abdelfattah for the 2026 Graduation Project.\n\n'
+          'Core Tech: Flutter, Python, Shannon Entropy Heuristics, Punycode & Homograph Detection.',
+          style: TextStyle(color: Colors.white, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Acknowledge', style: TextStyle(color: AppColors.amber)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// ── Shared Widgets ──────────────────────────────────────────────────────────
+// ── Internal Helpers ──────────────────────────────────────────────────────────
 
 class _TopChip extends StatelessWidget {
   final String icon, label;
   final Color color;
-  const _TopChip(
-      {required this.icon, required this.label, required this.color});
+  const _TopChip({required this.icon, required this.label, required this.color});
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -445,12 +458,7 @@ class _TopChip extends StatelessWidget {
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(icon, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
-          Text(label,
-              style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: color))
+          Text(label, style: TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.w700, color: color))
         ]),
       );
 }
@@ -459,24 +467,17 @@ class _IconBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool active;
-  const _IconBtn(
-      {required this.icon, required this.onTap, this.active = false});
+  const _IconBtn({required this.icon, required this.onTap, this.active = false});
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-              color: active
-                  ? AppColors.amber.withOpacity(.15)
-                  : AppColors.panel.withOpacity(.8),
+              color: active ? AppColors.amber.withOpacity(.15) : AppColors.panel.withOpacity(.8),
               shape: BoxShape.circle,
-              border: Border.all(
-                  color: active
-                      ? AppColors.amber.withOpacity(.4)
-                      : AppColors.rim)),
-          child: Icon(icon,
-              size: 18, color: active ? AppColors.amber : AppColors.muted),
+              border: Border.all(color: active ? AppColors.amber.withOpacity(.4) : AppColors.rim)),
+          child: Icon(icon, size: 18, color: active ? AppColors.amber : AppColors.muted),
         ),
       );
 }
@@ -485,34 +486,20 @@ class _CtrlBtn extends StatelessWidget {
   final String icon, label;
   final VoidCallback onTap;
   final bool highlight;
-  const _CtrlBtn(
-      {required this.icon,
-      required this.label,
-      required this.onTap,
-      this.highlight = false});
+  const _CtrlBtn({required this.icon, required this.label, required this.onTap, this.highlight = false});
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-              color: highlight
-                  ? AppColors.arc.withOpacity(.1)
-                  : AppColors.panel.withOpacity(.9),
+              color: highlight ? AppColors.arc.withOpacity(.1) : AppColors.panel.withOpacity(.9),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: highlight
-                      ? AppColors.arc.withOpacity(.35)
-                      : AppColors.rim)),
+              border: Border.all(color: highlight ? AppColors.arc.withOpacity(.35) : AppColors.rim)),
           child: Column(children: [
             Text(icon, style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 4),
-            Text(label,
-                style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 10,
-                    color: highlight ? AppColors.arc : AppColors.muted,
-                    letterSpacing: 0.5))
+            Text(label, style: TextStyle(fontFamily: 'monospace', fontSize: 10, color: highlight ? AppColors.arc : AppColors.muted, letterSpacing: 0.5))
           ]),
         ),
       );

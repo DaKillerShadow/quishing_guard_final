@@ -38,3 +38,14 @@
 {"ts": "2026-03-19T05:50:30Z", "level": "WARNING", "module": "run", "msg": "Please set a secure ADMIN_PASSWORD in your Render environment variables.", "taskName": null}
 {"ts": "2026-03-19T05:50:30Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 on port 5000", "taskName": null}
 {"ts": "2026-03-19T05:50:30Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Checking database tables...", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "INFO", "module": "run", "msg": "\ud83c\udf31 Seeding database with built-in reputation lists...", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "INFO", "module": "run", "msg": "\u2705 Database seeded successfully.", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "WARNING", "module": "run", "msg": "\u274c SECURITY ALERT: ADMIN_PASSWORD is set to default!", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "WARNING", "module": "run", "msg": "Please set a secure ADMIN_PASSWORD in your Render environment variables.", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
+{"ts": "2026-04-08T13:06:26Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-08T13:58:15Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-08T14:19:09Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-08T14:25:56Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}

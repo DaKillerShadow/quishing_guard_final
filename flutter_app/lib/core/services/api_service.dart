@@ -15,12 +15,27 @@ final apiServiceProvider = Provider<ApiService>((ref) {
       'API_BASE_URL',
       defaultValue: AppConstants.defaultApiBaseUrl,
     ),
-    // Aligned to the 60s durations now defined in AppConstants
     connectTimeout: AppConstants.connectTimeout,
     receiveTimeout: AppConstants.receiveTimeout,
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+    },
+  ));
+
+  // ✅ SEC-01: Auth Interceptor
+  // This attaches the JWT ONLY to requests targeting /admin paths.
+  // It reads fresh from storage on every request, preventing stale token bugs.
+  dio.interceptors.add(InterceptorsWrapper(
+    onRequest: (options, handler) async {
+      if (options.path.contains('/admin')) {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('admin_token');
+        if (token != null) {
+          options.headers['Authorization'] = 'Bearer $token';
+        }
+      }
+      return handler.next(options);
     },
   ));
 
@@ -41,7 +56,6 @@ class ApiService {
 
   // ── Public Endpoints ──────────────────────────────────────────────────────
 
-  /// Analyse a QR-decoded URL payload via the Flask heuristic engine.
   Future<ScanResult> analyseUrl(String rawPayload) async {
     try {
       final response = await _dio.post('/api/v1/analyse', data: {
@@ -54,7 +68,6 @@ class ApiService {
     }
   }
 
-  /// Upload an image for server-side OpenCV QR decoding.
   Future<List<String>> scanImage(List<int> imageBytes, String filename) async {
     try {
       final formData = FormData.fromMap({
@@ -82,7 +95,6 @@ class ApiService {
     }
   }
 
-  /// Report a phishing URL for admin review.
   Future<void> reportPhishing({
     required String resolvedUrl,
     required String reason,
@@ -97,12 +109,10 @@ class ApiService {
     }
   }
 
-  /// Health probe — returns true when API is reachable.
   Future<bool> isHealthy() async {
     try {
       final r = await _dio.get(
         '/api/v1/health',
-        // Let it use the global AppConstants.receiveTimeout (60s)
         options: Options(receiveTimeout: AppConstants.receiveTimeout),
       );
       return r.statusCode == 200;
@@ -123,7 +133,7 @@ class ApiService {
       if (token != null) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('admin_token', token);
-        _setAuthHeader(token);
+        // ✅ FIXED: Removed _setAuthHeader call. Interceptor handles it now.
       }
       return token;
     } on DioException catch (e) {
@@ -131,16 +141,15 @@ class ApiService {
     }
   }
 
+  /// No-op in the new Interceptor architecture, but kept for compatibility.
   Future<void> loadSavedToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('admin_token');
-    if (token != null) _setAuthHeader(token);
+    // Fresh token reading is now handled by the Interceptor's onRequest.
   }
 
   Future<void> adminLogout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('admin_token');
-    _dio.options.headers.remove('Authorization');
+    // Header cleanup is implicit: the Interceptor won't find a token next time.
   }
 
   Future<Map<String, dynamic>> adminDashboard() async {
@@ -200,22 +209,9 @@ class ApiService {
     _dio.options.baseUrl = url.trimRight().replaceAll(RegExp(r'/+$'), '');
   }
 
-dio.interceptors.add(InterceptorsWrapper(
-  onRequest: (options, handler) async {
-    if (options.path.contains('/admin')) {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('admin_token');
-      if (token != null) {
-        options.headers['Authorization'] = 'Bearer $token';
-      }
-    }
-    handler.next(options);
-  },
-));
+  // ── Internal Error Mapping ─────────────────────────────────────────────────
 
-// ── Internal Error Mapping ─────────────────────────────────────────────────
   ApiException _map(DioException e) {
-    // Safely extract the error message, preventing String-to-Map cast crashes
     final data = e.response?.data;
     final message = (data is Map) ? data['error'] as String? : null;
 
@@ -231,3 +227,4 @@ dio.interceptors.add(InterceptorsWrapper(
       _ => ApiException('Network error occurred.', statusCode: 0),
     };
   }
+}

@@ -9,6 +9,7 @@ import '../../shared/theme/app_theme.dart';
 class MicroLessonScreen extends StatefulWidget {
   const MicroLessonScreen({super.key, required this.result});
   final ScanResult result;
+
   @override
   State<MicroLessonScreen> createState() => _State();
 }
@@ -18,20 +19,17 @@ class _State extends State<MicroLessonScreen> {
 
   // FIXED LOGIC: Ensures the lesson always finds a relevant threat to explain
   LessonModel get _lesson {
-    // 1. Check if the backend explicitly labeled a 'topThreat'
     if (widget.result.topThreat != null &&
         widget.result.topThreat!.isNotEmpty) {
       return LessonModel.forThreat(widget.result.topThreat);
     }
 
-    // 2. Fallback: Find the first security check that isn't "SAFE"
     try {
       final dangerousCheck = widget.result.checks.firstWhere(
         (c) => c.status != 'SAFE',
       );
       return LessonModel.forThreat(dangerousCheck.name);
     } catch (_) {
-      // 3. Last Resort: Default general Quishing lesson
       return LessonModel.forThreat('generic');
     }
   }
@@ -119,34 +117,21 @@ class _State extends State<MicroLessonScreen> {
                     height: 1.6)),
           ),
 
-          // ── How it works ──────────────────────────────────────
+          // ── How it works (Dynamic Injection) ───────────────────
           _Section(
               label: 'HOW IT WORKS',
-              child: Text(l.body,
+              child: Text(
+                  "You scanned ${widget.result.displayHost}. ${l.body}", // ✅ Contextual hook
                   style: const TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 12,
                       color: AppColors.muted,
                       height: 1.7))),
 
-          // ── Real-world example ────────────────────────────────
+          // ── Spot the Threat (Comparison Card) ──────────────────
           _Section(
-            label: 'REAL-WORLD EXAMPLE',
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.void_bg,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.rim),
-              ),
-              child: Text(l.example,
-                  style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      color: AppColors.amber,
-                      height: 1.5)),
-            ),
+            label: 'SPOT THE THREAT',
+            child: _buildComparisonCard(l), // ✅ Side-by-side comparison
           ),
 
           // ── What to do ────────────────────────────────────────
@@ -196,7 +181,45 @@ class _State extends State<MicroLessonScreen> {
       ),
     );
   }
+
+  // ── Helper UI Methods ──────────────────────────────────────────
+
+  Widget _buildComparisonCard(LessonModel l) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.rim),
+      ),
+      child: Column(
+        children: [
+          _comparisonRow('ACTUAL THREAT', l.example, AppColors.ember),
+          const Divider(color: AppColors.rim, height: 24),
+          _comparisonRow('LEGITIMATE SITE', l.realCounterpart, AppColors.arc),
+        ],
+      ),
+    );
+  }
+
+  Widget _comparisonRow(String label, String url, Color color) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: TextStyle(
+                color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+        Text(url,
+            style: const TextStyle(
+                fontFamily: 'monospace', // Essential for alignment
+                fontSize: 12,
+                color: AppColors.textColor)),
+      ],
+    );
+  }
 }
+
+// ── Shared Widgets ──────────────────────────────────────────────────
 
 class _LessonCard extends StatelessWidget {
   const _LessonCard(

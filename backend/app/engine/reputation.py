@@ -1,79 +1,104 @@
 """
 reputation.py — Reputation & List Management Engine
 ===================================================
-Handles domain-level trust and threat intelligence. 
-Replaces flat JSON files with SQLAlchemy-backed lookups.
+Handles domain-level trust and threat intelligence using:
+1. Built-in seed lists
+2. SQLAlchemy Database (Allowlist/Blocklist)
+3. Tranco Top 100k CSV (High Reputation Killer)
 """
-
-from __future__ import annotations
+from __future__ import annotations  # ✅ Line 1: Fixed SyntaxError
+import os
+import csv
+import functools
 import tldextract
-from flask import current_app
+from sqlalchemy.exc import OperationalError
 
-# ── Built-in seed lists ───────────────────────────────────────────────────────
+# ── 1. Path Resolution ────────────────────────────────────────────────────────
+# Finds 'backend/app/data/tranco_top_100k.csv'
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CSV_PATH = os.path.join(BASE_DIR, "data", "tranco_top_100k.csv")
+
+# ── 2. Built-in Seed Lists (Fallback) ─────────────────────────────────────────
+
 _BUILTIN_ALLOWLIST: frozenset[str] = frozenset({
-    "google.com", "googleapis.com", "goo.gl",
-    "microsoft.com", "live.com", "outlook.com", "office.com",
-    "apple.com", "icloud.com", "facebook.com", "instagram.com", 
-    "twitter.com", "x.com", "linkedin.com", "tiktok.com",
-    "paypal.com", "stripe.com", "visa.com", "mastercard.com",
-    "github.com", "gitlab.com", "amazon.com", "amazonaws.com",
-    "cloudflare.com", "wise.com", "revolut.com",
-    "zoom.us", "slack.com", "discord.com", "whatsapp.com",
-    "aou.edu.eg", "coursera.org", "edx.org",
+    "google.com", "googleapis.com", "goo.gl", "microsoft.com", "apple.com", 
+    "paypal.com", "github.com", "amazon.com", "cloudflare.com", "whatsapp.com",
+    "aou.edu.eg", "coursera.org", "instapay.eg"
 })
 
 _BUILTIN_BLOCKLIST: frozenset[str] = frozenset({
-    "xn--pple-43d.com",    # punycode apple spoof
-    "xn--mcrosoft-n2a.com",# punycode microsoft spoof
-    "paypa1.com",           # typosquat
-    "arnazon.com",          # typosquat
+    "xn--pple-43d.com", "xn--mcrosoft-n2a.com", "paypa1.com", "arnazon.com"
 })
 
-# ── Extraction Helper ─────────────────────────────────────────────────────────
+# ── 3. Helper & Loading Functions ─────────────────────────────────────────────
 
 def _get_etld1(url_or_hostname: str) -> str:
-    """Standardized domain extraction using tldextract."""
+    """Standardized domain extraction (e.g., 'sub.google.com' -> 'google.com')."""
     ext = tldextract.extract(url_or_hostname)
-    # Prevents trailing dots for IPs or domains without suffixes
     if ext.suffix:
         return f"{ext.domain}.{ext.suffix}".lower().strip()
     return ext.domain.lower().strip()
 
-# ── Public API ────────────────────────────────────────────────────────────────
+@functools.lru_cache(maxsize=1)
+def load_tranco_list() -> set[str]:
+    """Loads the top 100k domains into memory for O(1) lookups."""
+    trusted_domains = set()
+    try:
+        if not os.path.exists(CSV_PATH):
+            print(f"⚠️ WARNING: Reputation list not found at {CSV_PATH}")
+            return trusted_domains
 
+        with open(CSV_PATH, mode='r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    # Row 1 is the domain in Tranco CSV
+                    trusted_domains.add(row[1].strip().lower())
+        
+        print(f"✅ Reputation Engine: Loaded {len(trusted_domains)} trusted domains.")
+    except Exception as e:
+        print(f"❌ Error loading reputation list: {e}")
+    
+    return trusted_domains
 
+# ── 4. Public API ─────────────────────────────────────────────────────────────
+
+def is_highly_trusted(url_or_hostname: str) -> bool:
+    """Checks if a domain exists in the Tranco Top 100k."""
+    domain = _get_etld1(url_or_hostname)
+    trusted_set = load_tranco_list()
+    return domain in trusted_set
 
 def is_allowlisted(url_or_hostname: str) -> bool:
-    """Check if a domain is trusted via built-in list or DB."""
+    """Check if domain is trusted via Built-in list, Tranco, or DB."""
     domain = _get_etld1(url_or_hostname)
-    # Check built-in list
-    if domain in _BUILTIN_ALLOWLIST:
+    
+    if domain in _BUILTIN_ALLOWLIST or is_highly_trusted(domain):
         return True
-    # Check DB
+
     try:
         from ..models.db_models import AllowlistEntry
         return AllowlistEntry.query.filter_by(domain=domain).first() is not None
-    except Exception as e:
-        current_app.logger.error(f"DB Error checking allowlist for {domain}: {e}")
+    except Exception:
         return False
 
 def is_blocklisted(url_or_hostname: str) -> bool:
-    """Check if a domain is malicious via built-in list or DB."""
+    """Check if domain is malicious via Built-in list or DB."""
     domain = _get_etld1(url_or_hostname)
-    # Check built-in list
+    
     if domain in _BUILTIN_BLOCKLIST:
         return True
-    # Check DB
+
     try:
         from ..models.db_models import BlocklistEntry
+        # Only block if approved by an admin
         return BlocklistEntry.query.filter_by(domain=domain, is_approved=True).first() is not None
-    except Exception as e:
-        current_app.logger.error(f"DB Error checking blocklist for {domain}: {e}")
+    except Exception:
         return False
 
-def add_to_blocklist(domain: str, reason: str = "user_report") -> None:
-    """Submit a domain for admin review."""
-    domain = _get_etld1(domain)
+def add_to_blocklist(domain_raw: str, reason: str = "user_report") -> None:
+    """Submit a domain for admin review in the database."""
+    domain = _get_etld1(domain_raw)
     try:
         from ..models.db_models import BlocklistEntry
         from ..database import db
@@ -81,44 +106,27 @@ def add_to_blocklist(domain: str, reason: str = "user_report") -> None:
             entry = BlocklistEntry(domain=domain, reason=reason, is_approved=False)
             db.session.add(entry)
             db.session.commit()
-    except Exception as e:
-        current_app.logger.error(f"DB Error adding to blocklist for {domain}: {e}")
+    except Exception:
+        pass
 
-# ── Seeding Logic ─────────────────────────────────────────────────────────────
+# ── 5. Database Seeding ───────────────────────────────────────────────────────
 
 def seed_database() -> None:
-    """
-    Populates the database with built-in seeds if they don't exist.
-    Optimized to use bulk lookups instead of querying in a loop.
-    """
-    from ..models.db_models import BlocklistEntry, AllowlistEntry
-    from ..database import db
-
+    """Populates the database with built-in seeds."""
     try:
-        # 1. Fetch all existing domains from the DB into memory
-        existing_blocks = {entry.domain for entry in BlocklistEntry.query.with_entities(BlocklistEntry.domain).all()}
-        existing_allows = {entry.domain for entry in AllowlistEntry.query.with_entities(AllowlistEntry.domain).all()}
+        from ..models.db_models import BlocklistEntry, AllowlistEntry
+        from ..database import db
 
-        # 2. Find missing entries using set subtraction
-        missing_blocks = _BUILTIN_BLOCKLIST - existing_blocks
-        missing_allows = _BUILTIN_ALLOWLIST - existing_allows
+        # Logic to only add if not already present
+        for domain in _BUILTIN_BLOCKLIST:
+            if not BlocklistEntry.query.filter_by(domain=domain).first():
+                db.session.add(BlocklistEntry(domain=domain, reason="seed", is_approved=True))
+        
+        for domain in _BUILTIN_ALLOWLIST:
+            if not AllowlistEntry.query.filter_by(domain=domain).first():
+                db.session.add(AllowlistEntry(domain=domain))
 
-        # 3. Add only the missing entries
-        for domain in missing_blocks:
-            db.session.add(BlocklistEntry(
-                domain=domain, 
-                reason="seed", 
-                added_by="seed", 
-                is_approved=True
-            ))
-            
-        for domain in missing_allows:
-            db.session.add(AllowlistEntry(domain=domain))
-
-        # 4. Commit once for the whole transaction
-        if missing_blocks or missing_allows:
-            db.session.commit()
-            
+        db.session.commit()
+        print("✅ Database Seeding: Completed.")
     except Exception as e:
-        # We use print here as a fallback if the app logger isn't ready during boot
-        print(f"DB Error seeding database: {e}")
+        print(f"⚠️ DB Error during seeding: {e}")
