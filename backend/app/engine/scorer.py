@@ -90,15 +90,14 @@ _CRITICAL_OVERRIDE_FLOORS = {
     "punycode":           65,
     "dga_entropy":        62,
     "nested_short":       65,
-    "authority_spoofing": 65,  # ADDED: Instantly flag @ spoofs
+    "authority_spoofing": 65,  
     "blocklist":          100,
 }
 
 # ── 3. Helper Functions ───────────────────────────────────────────────────────
 
 def is_short_dga(domain_string: str) -> bool:
-    """Secondary check for short DGA domains (e.g. x7z9q2mwpb) that bypass entropy limitations."""
-    # Matches if there are 5 or more consecutive consonants or numbers
+    """Secondary check for short DGA domains that bypass entropy limitations."""
     if re.search(r'[bcdfghjklmnpqrstvwxyz0-9]{5,}', domain_string.lower()):
         return True
     return False
@@ -106,17 +105,10 @@ def is_short_dga(domain_string: str) -> bool:
 # ── 4. Main Analytical Engine ─────────────────────────────────────────────────
 
 def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
-    """
-    Evaluates the URL and generates a professional Security Analysis Report.
-    Synchronized with Flutter 'SecurityCheck' model fields.
-    """
     checks = []
     
     # --- PHASE 1: THE UNROLLER ---
-    # Call the external resolver microservice
     trace_data = resolve(url)
-    
-    # Extract data using the dataclass dot-notation
     target_url = trace_data.resolved_url
     chain = trace_data.redirect_chain
     total_hops = trace_data.hop_count
@@ -138,7 +130,6 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     })
 
     # --- PHASE 2: THE ANATOMY ANALYSIS ---
-    # 1. DEEP URL DECODING (Defeats Percent Encoding Masking)
     decoded_target = unquote(target_url).lower()
     
     ext = tldextract.extract(decoded_target)
@@ -150,8 +141,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     parsed = urlparse(decoded_target if decoded_target.startswith("http") else "https://" + decoded_target)
     scheme = parsed.scheme.lower()
 
-    # 2. AUTHORITY SPOOFING CHECK (Defeats the "@" Trap)
-    # The netloc contains the credentials if they exist (e.g., fake.com@real.com)
+    # 2. AUTHORITY SPOOFING CHECK 
     has_authority_spoof = "@" in parsed.netloc
     checks.append({
         "name": "authority_spoofing", "label": "Authority Spoofing (@ Mask)",
@@ -160,10 +150,9 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": 40 if has_authority_spoof else 0, "triggered": has_authority_spoof
     })
 
-    # 3. IP ADDRESS LITERAL (Now defeats Hex/Dword/Octal masks!)
+    # 3. IP ADDRESS LITERAL 
     is_ip = False
     try:
-        # parsed.hostname cleanly extracts the host, even if it's an integer
         ipaddress.ip_address(parsed.hostname)
         is_ip = True
     except (ValueError, TypeError): pass
@@ -176,7 +165,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "score": W_IP_LITERAL if is_ip else 0, "triggered": is_ip
     })
 
-    # 4. Punycode / Homograph / Cyrillic Attack
+    # 4. Punycode Attack
     is_puny = False
     puny_msg = "No Punycode IDN encoding detected. ✓"
 
@@ -230,7 +219,7 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": W_SUSPICIOUS_TLD if is_bad_tld else 0, "triggered": is_bad_tld
     })
 
-    # 8. Excessive Subdomain Depth
+    # 8. Subdomain Depth
     depth = len(subdomain.split('.')) if subdomain else 0
     is_deep_sub = depth >= 3
     checks.append({
@@ -250,8 +239,8 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     })
 
     # 10. Path & Subdomain Keyword Analysis 
-    # Updated to catch keywords in the URL parameters as well
-scan_target = f"{subdomain.lower()}/{parsed.path.lower()}?{parsed.query.lower()}"
+    # FIXED: Proper indentation applied to this block
+    scan_target = f"{subdomain.lower()}/{parsed.path.lower()}?{parsed.query.lower()}"
     matched_kws = [kw for kw in _PHISHING_PATH_KEYWORDS if kw in scan_target]
     path_hit = len(matched_kws) >= 1
     checks.append({
@@ -274,8 +263,7 @@ scan_target = f"{subdomain.lower()}/{parsed.path.lower()}?{parsed.query.lower()}
 
     # 12. URL Shortener Detection
     etld1 = f"{domain}.{suffix}".lower()
-    short_hit = etld1 in KNOWN_SHORTENERS or full_host.lower() in KNOWN_SHORTENERS
-    short_hit = short_hit and total_hops == 0
+    short_hit = (etld1 in KNOWN_SHORTENERS or full_host.lower() in KNOWN_SHORTENERS) and total_hops == 0
     checks.append({
         "name": "url_shortener", "label": "URL Shortener (Hidden Destination)",
         "status": "UNSAFE" if short_hit else "SAFE",
@@ -300,7 +288,8 @@ scan_target = f"{subdomain.lower()}/{parsed.path.lower()}?{parsed.query.lower()}
     if "suspicious_tld" in triggered_names and "sld_keywords" in triggered_names and not (blocklisted or allowlisted):
         risk_score = max(risk_score, 35)
 
-    risk_label = "safe" if risk_score < 30 else "warning" if risk_score < 65 else "danger"
+    # FIXED: Normalized risk labels to match 0-29 / 30-59 / 60+ scale
+    risk_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
 
     if blocklisted:
         assessment_text = "Known Malicious Domain. Blocked by Administrator."
