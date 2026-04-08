@@ -83,11 +83,12 @@ def trace_redirects(start_url: str) -> dict:
     res = resolve(start_url)
     
     tracker_results = {
-        "hop_count": res.hop_count,
-        "shortener_count": res.shortener_count,
-        "final_url": res.resolved_url,
+        "hop_count":          res.hop_count,
+        "shortener_count":    res.shortener_count,
+        "final_url":          res.resolved_url,
+        "redirect_chain":     res.redirect_chain,   # ← populated for UI display
         "meta_refresh_found": False,
-        "error": res.error
+        "error":              res.error,
     }
 
     # 2. Scrape for Client-Side Evasion (Meta-Refresh)
@@ -131,10 +132,23 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     parsed = urlparse(decoded_url if "://" in decoded_url else "https://" + decoded_url)
 
     # --- THE 11 PILLARS ---
+    # Each check includes: name, label, status, message, metric, score, triggered
+    # status  → "SAFE" | "UNSAFE"  — drives the ✓ / ✕ icon in HeuristicCard
+    # message → human-readable explanation of the finding
+    # metric  → technical detail shown in the monospace pill (empty string hides it)
 
     # 1. Global Reputation (The Gatekeeper)
     is_trusted = is_highly_trusted(domain) or is_highly_trusted(full_host)
-    checks.append({"name": "reputation", "label": "GLOBAL REPUTATION", "score": -50 if is_trusted else 0, "triggered": not is_trusted})
+    checks.append({
+        "name":      "reputation",
+        "label":     "GLOBAL REPUTATION",
+        "status":    "SAFE",
+        "message":   "Domain recognised in the global Tranco Top 100k reputation list. ✓" if is_trusted
+                     else "Domain not found in global reputation database.",
+        "metric":    "Tranco Top 100k" if is_trusted else "",
+        "score":     -50 if is_trusted else 0,
+        "triggered": not is_trusted,
+    })
 
     # 2. IP Address Literal
     is_ip = False
@@ -142,43 +156,134 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         ipaddress.ip_address(domain); is_ip = True
     except ValueError:  # FIX H-2: narrowed from bare except (was catching SystemExit etc.)
         pass
-    checks.append({"name": "ip_literal", "label": "IP ADDRESS LITERAL", "score": 25 if is_ip else 0, "triggered": is_ip})
+    checks.append({
+        "name":      "ip_literal",
+        "label":     "IP ADDRESS LITERAL",
+        "status":    "UNSAFE" if is_ip else "SAFE",
+        "message":   "Link uses a raw IP address instead of a registered domain name." if is_ip
+                     else "Link uses a proper registered domain name. ✓",
+        "metric":    f"Host: {domain}" if is_ip else "",
+        "score":     25 if is_ip else 0,
+        "triggered": is_ip,
+    })
 
     # 3. Punycode/Homograph Attack
     is_puny = "xn--" in full_host
-    checks.append({"name": "punycode", "label": "PUNYCODE ATTACK", "score": 30 if is_puny else 0, "triggered": is_puny})
+    checks.append({
+        "name":      "punycode",
+        "label":     "PUNYCODE ATTACK",
+        "status":    "UNSAFE" if is_puny else "SAFE",
+        "message":   "Punycode (xn--) IDN encoding detected — potential homograph brand impersonation." if is_puny
+                     else "No Punycode IDN encoding detected. ✓",
+        "metric":    f"Host: {full_host}" if is_puny else "",
+        "score":     30 if is_puny else 0,
+        "triggered": is_puny,
+    })
 
     # 4. DGA Entropy (Shannon Math)
     ent_res = dga_score(domain)
-    checks.append({"name": "dga_entropy", "label": "DGA ENTROPY ANALYSIS", "score": 20 if ent_res.is_dga else 0, "triggered": ent_res.is_dga})
+    checks.append({
+        "name":      "dga_entropy",
+        "label":     "DGA ENTROPY ANALYSIS",
+        "status":    "UNSAFE" if ent_res.is_dga else "SAFE",
+        "message":   f"Domain '{domain}' exhibits machine-generated (DGA) character patterns." if ent_res.is_dga
+                     else "Domain entropy is within normal human-chosen name range. ✓",
+        "metric":    f"Entropy: {ent_res.entropy:.2f} bits  |  Confidence: {ent_res.confidence}",
+        "score":     20 if ent_res.is_dga else 0,
+        "triggered": ent_res.is_dga,
+    })
 
     # 5. Phishing Keywords
     found_kws = [kw for kw in _PHISHING_KEYWORDS if kw in decoded_url]
-    checks.append({"name": "path_keywords", "label": "PATH KEYWORDS", "score": 15 if found_kws else 0, "triggered": bool(found_kws)})
+    checks.append({
+        "name":      "path_keywords",
+        "label":     "PATH KEYWORDS",
+        "status":    "UNSAFE" if found_kws else "SAFE",
+        "message":   f"Phishing keywords found in URL path: {', '.join(found_kws[:3])}." if found_kws
+                     else "No suspicious phishing keywords found in URL path. ✓",
+        "metric":    f"Matched: {len(found_kws)} keyword(s)" if found_kws else "",
+        "score":     15 if found_kws else 0,
+        "triggered": bool(found_kws),
+    })
 
     # 6. Nested Shorteners
     is_nested = trace_data["shortener_count"] >= 2
-    checks.append({"name": "nested_short", "label": "NESTED SHORTENERS", "score": 40 if is_nested else 0, "triggered": is_nested})
+    checks.append({
+        "name":      "nested_short",
+        "label":     "NESTED SHORTENERS",
+        "status":    "UNSAFE" if is_nested else "SAFE",
+        "message":   "Multiple URL shorteners chained together — final destination is deliberately hidden." if is_nested
+                     else "No deceptive shortener nesting detected. ✓",
+        "metric":    f"Shorteners in chain: {trace_data['shortener_count']}" if trace_data["shortener_count"] else "",
+        "score":     40 if is_nested else 0,
+        "triggered": is_nested,
+    })
 
     # 7. HTML Evasion
     is_evasion = trace_data["meta_refresh_found"]
-    checks.append({"name": "html_evasion", "label": "HTML EVASION", "score": 30 if is_evasion else 0, "triggered": is_evasion})
+    checks.append({
+        "name":      "html_evasion",
+        "label":     "HTML EVASION",
+        "status":    "UNSAFE" if is_evasion else "SAFE",
+        "message":   "Hidden HTML meta-refresh redirect detected on the landing page." if is_evasion
+                     else "No hidden HTML redirect tags detected. ✓",
+        "metric":    "Meta-Refresh tag present" if is_evasion else "",
+        "score":     30 if is_evasion else 0,
+        "triggered": is_evasion,
+    })
 
     # 8. Redirect Depth
     is_deep = trace_data["hop_count"] >= 3
-    checks.append({"name": "redirect_depth", "label": "REDIRECT CHAIN DEPTH", "score": 20 if is_deep else 0, "triggered": is_deep})
+    checks.append({
+        "name":      "redirect_depth",
+        "label":     "REDIRECT CHAIN DEPTH",
+        "status":    "UNSAFE" if is_deep else "SAFE",
+        "message":   "Deep redirect chain detected — potential destination cloaking attempt." if is_deep
+                     else f"{trace_data['hop_count']} redirect hop(s) followed safely. ✓",
+        "metric":    f"Hops: {trace_data['hop_count']}",
+        "score":     20 if is_deep else 0,
+        "triggered": is_deep,
+    })
 
     # 9. Suspicious TLD
     is_bad_tld = ext.suffix.lower() in _BAD_TLDS
-    checks.append({"name": "suspicious_tld", "label": "SUSPICIOUS TLD", "score": 8 if is_bad_tld else 0, "triggered": is_bad_tld})
+    checks.append({
+        "name":      "suspicious_tld",
+        "label":     "SUSPICIOUS TLD",
+        "status":    "UNSAFE" if is_bad_tld else "SAFE",
+        "message":   f"TLD '.{ext.suffix}' has a statistically elevated phishing and abuse history." if is_bad_tld
+                     else f"TLD '.{ext.suffix}' is a standard low-risk extension. ✓",
+        "metric":    f"TLD: .{ext.suffix}" if is_bad_tld else "",
+        "score":     8 if is_bad_tld else 0,
+        "triggered": is_bad_tld,
+    })
 
     # 10. Subdomain Nesting
     sub_depth = len(ext.subdomain.split('.')) if ext.subdomain else 0
-    checks.append({"name": "subdomain_depth", "label": "SUBDOMAIN DEPTH", "score": 8 if sub_depth >= 3 else 0, "triggered": sub_depth >= 3})
+    is_deep_sub = sub_depth >= 3
+    checks.append({
+        "name":      "subdomain_depth",
+        "label":     "SUBDOMAIN DEPTH",
+        "status":    "UNSAFE" if is_deep_sub else "SAFE",
+        "message":   "Excessive subdomain nesting detected — common phishing technique to mimic trusted brands." if is_deep_sub
+                     else "Normal subdomain depth. ✓",
+        "metric":    f"Subdomain labels: {sub_depth}" if ext.subdomain else "No subdomains",
+        "score":     8 if is_deep_sub else 0,
+        "triggered": is_deep_sub,
+    })
 
     # 11. HTTPS Enforcement
     is_http = parsed.scheme == "http"
-    checks.append({"name": "https_mismatch", "label": "HTTPS ENFORCEMENT", "score": 7 if is_http else 0, "triggered": is_http})
+    checks.append({
+        "name":      "https_mismatch",
+        "label":     "HTTPS ENFORCEMENT",
+        "status":    "UNSAFE" if is_http else "SAFE",
+        "message":   "Link uses unencrypted HTTP — data in transit is not protected." if is_http
+                     else "Link uses encrypted HTTPS protocol. ✓",
+        "metric":    f"Scheme: {parsed.scheme}",
+        "score":     7 if is_http else 0,
+        "triggered": is_http,
+    })
 
     # --- PHASE 4: FINAL AGGREGATION ---
     raw_score = sum(c['score'] for c in checks)
@@ -199,10 +304,11 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
 
     # ✅ THE FIX: Ensure all keys exist for analyse.py
     return {
-        "url": url, 
-        "resolved_url": target_url, 
-        "risk_score": risk_score, 
-        "risk_label": final_label,
-        "checks": checks, 
-        "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {final_label.upper()}."
+        "url":                url,
+        "resolved_url":       target_url,
+        "risk_score":         risk_score,
+        "risk_label":         final_label,
+        "checks":             checks,
+        "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {final_label.upper()}.",
     }
+
