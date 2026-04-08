@@ -23,13 +23,12 @@ from __future__ import annotations
 import hmac
 from flask import Blueprint, request, jsonify, current_app
 
-from ..limiter     import limiter
+from ..limiter     import limiter, get_real_client_ip  # BUG FIX: Imported IP helper
 from ..utils.auth  import create_token
 from ..logger      import get_logger
 
 bp  = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 log = get_logger("auth")
-
 
 @bp.route("/login", methods=["POST"])
 @limiter.limit("5 per minute")
@@ -45,13 +44,16 @@ def login():
     user_ok = hmac.compare_digest(username, expected_user)
     pass_ok = hmac.compare_digest(password, expected_pass)
 
+    # Grab the real IP, bypassing cloud proxies
+    actual_ip = get_real_client_ip()
+
     if not (user_ok and pass_ok):
         log.warning("Failed admin login attempt",
-                    extra={"ip": request.remote_addr, "username": username})
+                    extra={"ip": actual_ip, "username": username})
         return jsonify({"error": "Invalid credentials"}), 401
 
     token, expires_in = create_token()
-    log.info("Admin login successful", extra={"ip": request.remote_addr})
+    log.info("Admin login successful", extra={"ip": actual_ip})
 
     return jsonify({
         "token":      token,
