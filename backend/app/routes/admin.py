@@ -15,7 +15,10 @@ from ..utils.auth        import admin_required
 from ..limiter           import limiter
 from ..logger            import get_logger
 
-bp  = Blueprint("admin", __name__, url_prefix="/api/v1/admin")
+# FIX M-5: Removed url_prefix from the Blueprint() constructor.
+#           Flask uses the value passed to register_blueprint() in __init__.py;
+#           the constructor value is silently ignored and caused confusion.
+bp  = Blueprint("admin", __name__)
 log = get_logger("admin")
 
 
@@ -161,3 +164,4 @@ def scan_logs():
         "count": len(rows),
         "logs": [r.to_dict() for r in rows], # DRY: Using the model's to_dict method
     }), 200
+
