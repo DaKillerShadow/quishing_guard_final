@@ -1,25 +1,22 @@
 """
-scorer.py — Master Integrated Heuristic Scoring Engine
+scorer.py — Master Integrated Heuristic Scoring Engine (v2.1.0)
 ======================================================
-Core analytical engine for Quishing Guard (v2.0.0).
-Calculates risk scores based on 8 security indicators,
-unrolls nested shorteners, and scrapes for HTML evasion.
+Core analytical engine for Quishing Guard.
+Calculates risk scores based on multi-factor heuristics and 
+neutralizes false positives using global reputation data.
+
 ─────────────────────┬──────┬──────────────────────────────────────────┐
 │ Check               │ Pts  │ Threat                                   │
 ├─────────────────────┼──────┼──────────────────────────────────────────┤
-│ ip_literal          │  25  │ Raw IP address used instead of domain    │
+│ authority_spoofing  │  40  │ Credential mask (@) used for spoofing    │
 │ punycode            │  30  │ IDN homograph / brand impersonation      │
+│ ip_literal          │  25  │ Raw IP address used instead of domain    │
 │ dga_entropy         │  20  │ Machine-generated (DGA) domain name      │
 │ redirect_depth      │  20  │ Deep redirect chain cloaking             │
+│ nested_short        │  40  │ Deceptive shortener-on-shortener nesting │
 │ suspicious_tld      │   8  │ Statistically high-risk TLD              │
-│ subdomain_depth     │   8  │ Excessive subdomain nesting              │
-│ https_mismatch      │   7  │ HTTP used instead of HTTPS               │
 └─────────────────────┴──────┴──────────────────────────────────────────┘
-Maximum raw:  118  →  capped at 100
-Risk labels:
-  0–29  safe    — green,  proceed with caution
- 30–59  warning — amber,  micro-lesson triggered, confirmation required
- 60–100 danger  — red,    blocked by default, explicit override needed
+False Positive Killer: Tranco Top 100k reduces score by 90%.
 """
 from __future__ import annotations
 import math
@@ -29,11 +26,12 @@ import ipaddress
 import tldextract
 from urllib.parse import urlparse, unquote
 
-# Import your dedicated modules
+# Engine Imports
 from app.engine.entropy import dga_score
 from app.engine.resolver import resolve
+from app.engine.reputation import is_highly_trusted
 
-# ── 1. Configuration & Regional Threat Intel ──────────────────────────────────
+# ── 1. Configuration ──────────────────────────────────────────────────────────
 
 _BAD_TLDS = {
     "ru", "tk", "ml", "ga", "cf", "gq", "top", "xyz", "pw", "cc",
@@ -72,8 +70,7 @@ KNOWN_SHORTENERS = frozenset({
     "qrco.de", "url.ie", "v.gd", "x.co", "zi.ma",
 })
 
-# ── 2. Scoring Weights & Critical Floors ─────────────────────────────────────
-
+# Weights
 W_IP_LITERAL     = 25
 W_PUNYCODE       = 30
 W_DGA_ENTROPY    = 20
@@ -94,20 +91,19 @@ _CRITICAL_OVERRIDE_FLOORS = {
     "blocklist":          100,
 }
 
-# ── 3. Helper Functions ───────────────────────────────────────────────────────
+# ── 2. Helpers ────────────────────────────────────────────────────────────────
 
 def is_short_dga(domain_string: str) -> bool:
-    """Secondary check for short DGA domains that bypass entropy limitations."""
     if re.search(r'[bcdfghjklmnpqrstvwxyz0-9]{5,}', domain_string.lower()):
         return True
     return False
 
-# ── 4. Main Analytical Engine ─────────────────────────────────────────────────
+# ── 3. Main Engine ────────────────────────────────────────────────────────────
 
 def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     checks = []
     
-    # --- PHASE 1: THE UNROLLER ---
+    # --- PHASE 1: REDIRECT RESOLUTION ---
     trace_data = resolve(url)
     target_url = trace_data.resolved_url
     chain = trace_data.redirect_chain
@@ -129,9 +125,8 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": 30 if is_meta_refresh else 0, "triggered": is_meta_refresh
     })
 
-    # --- PHASE 2: THE ANATOMY ANALYSIS ---
+    # --- PHASE 2: ANATOMY EXTRACTION ---
     decoded_target = unquote(target_url).lower()
-    
     ext = tldextract.extract(decoded_target)
     domain = ext.domain
     suffix = ext.suffix
@@ -141,7 +136,9 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     parsed = urlparse(decoded_target if decoded_target.startswith("http") else "https://" + decoded_target)
     scheme = parsed.scheme.lower()
 
-    # 2. AUTHORITY SPOOFING CHECK 
+    # --- PHASE 3: BEHAVIORAL HEURISTICS ---
+
+    # Authority Spoofing (@)
     has_authority_spoof = "@" in parsed.netloc
     checks.append({
         "name": "authority_spoofing", "label": "Authority Spoofing (@ Mask)",
@@ -150,13 +147,12 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "metric": "", "score": 40 if has_authority_spoof else 0, "triggered": has_authority_spoof
     })
 
-    # 3. IP ADDRESS LITERAL 
+    # IP Literal
     is_ip = False
     try:
         ipaddress.ip_address(parsed.hostname)
         is_ip = True
     except (ValueError, TypeError): pass
-    
     checks.append({
         "name": "ip_literal", "label": "IP Address Literal",
         "status": "UNSAFE" if is_ip else "SAFE",
@@ -165,147 +161,121 @@ def analyze_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
         "score": W_IP_LITERAL if is_ip else 0, "triggered": is_ip
     })
 
-    # 4. Punycode Attack
+    # Punycode / Homograph
     is_puny = False
     puny_msg = "No Punycode IDN encoding detected. ✓"
-
-    if "xn--" in full_host:
+    if "xn--" in full_host or re.search(r'[\u0400-\u04FF]', full_host):
         is_puny = True
-        puny_msg = "Punycode (xn--) IDN encoding detected – potential homograph risk!"
-    elif re.search(r'[\u0400-\u04FF]', full_host):
-        is_puny = True
-        puny_msg = "Cyrillic homograph characters detected – high phishing risk!"
-    else:
-        try:
-            encoded_domain = idna.encode(domain).decode('ascii')
-            if "xn--" in encoded_domain and encoded_domain != domain:
-                is_puny = True
-                puny_msg = "Hidden IDN/Homograph encoding detected."
-        except Exception: pass
-
+        puny_msg = "Punycode IDN or Cyrillic characters detected – Homograph risk!"
     checks.append({
         "name": "punycode", "label": "Punycode Attack",
         "status": "UNSAFE" if is_puny else "SAFE",
-        "message": puny_msg,
-        "metric": "", "score": W_PUNYCODE if is_puny else 0, "triggered": is_puny
+        "message": puny_msg, "metric": "", "score": W_PUNYCODE if is_puny else 0, "triggered": is_puny
     })
 
-    # 5. DGA Entropy Analysis
+    # DGA Entropy
     entropy_result = dga_score(domain)
     is_dga_threat = entropy_result.is_dga or is_short_dga(domain)
     checks.append({
         "name": "dga_entropy", "label": "DGA Entropy Analysis",
         "status": "UNSAFE" if is_dga_threat else "SAFE",
-        "message": f"Domain '{domain}' shows machine-generated patterns." if is_dga_threat else "Domain entropy is within normal range. ✓",
+        "message": f"Domain '{domain}' shows machine-generated patterns." if is_dga_threat else "Domain entropy is normal. ✓",
         "metric": f"Entropy: {entropy_result.entropy:.2f} bits", 
         "score": W_DGA_ENTROPY if is_dga_threat else 0, "triggered": is_dga_threat
     })
 
-    # 6. Redirect Chain Depth
-    is_deep_redir = total_hops >= 3
+    # Redirects, TLD, Subdomains, HTTPS
     checks.append({
         "name": "redirect_depth", "label": "Redirect Chain Depth",
-        "status": "UNSAFE" if is_deep_redir else "SAFE",
-        "message": "Deep redirect chain detected – potential cloaking attempt." if is_deep_redir else f"{total_hops} redirect hops followed. ✓",
-        "metric": f"Hops: {total_hops}", "score": W_REDIRECT_DEPTH if is_deep_redir else 0, "triggered": is_deep_redir
+        "status": "UNSAFE" if total_hops >= 3 else "SAFE",
+        "message": "Deep redirect chain detected." if total_hops >= 3 else f"{total_hops} hops. ✓",
+        "metric": f"Hops: {total_hops}", "score": W_REDIRECT_DEPTH if total_hops >= 3 else 0, "triggered": total_hops >= 3
     })
 
-    # 7. Suspicious TLD
     is_bad_tld = suffix.lower() in _BAD_TLDS
     checks.append({
         "name": "suspicious_tld", "label": "Suspicious TLD",
         "status": "UNSAFE" if is_bad_tld else "SAFE",
-        "message": f"TLD '.{suffix}' has an elevated abuse history." if is_bad_tld else f"TLD '.{suffix}' is a standard extension. ✓",
+        "message": f"TLD '.{suffix}' is high-risk." if is_bad_tld else "Standard TLD. ✓",
         "metric": "", "score": W_SUSPICIOUS_TLD if is_bad_tld else 0, "triggered": is_bad_tld
     })
 
-    # 8. Subdomain Depth
     depth = len(subdomain.split('.')) if subdomain else 0
-    is_deep_sub = depth >= 3
     checks.append({
         "name": "subdomain_depth", "label": "Subdomain Depth",
-        "status": "UNSAFE" if is_deep_sub else "SAFE",
-        "message": "High number of subdomains detected – common in phishing." if is_deep_sub else "Normal domain depth. ✓",
-        "metric": f"Labels: {depth + 2}", "score": W_SUBDOMAIN if is_deep_sub else 0, "triggered": is_deep_sub
+        "status": "UNSAFE" if depth >= 3 else "SAFE",
+        "message": "Excessive subdomains detected." if depth >= 3 else "Normal depth. ✓",
+        "metric": f"Labels: {depth + 2}", "score": W_SUBDOMAIN if depth >= 3 else 0, "triggered": depth >= 3
     })
 
-    # 9. HTTPS Enforcement
-    is_not_https = scheme != "https"
     checks.append({
         "name": "https_mismatch", "label": "HTTPS Enforcement",
-        "status": "UNSAFE" if is_not_https else "SAFE",
-        "message": "Link uses unencrypted HTTP protocol." if is_not_https else "Link uses encrypted HTTPS protocol. ✓",
-        "metric": "", "score": W_HTTPS if is_not_https else 0, "triggered": is_not_https
+        "status": "UNSAFE" if scheme != "https" else "SAFE",
+        "message": "Link uses unencrypted HTTP." if scheme != "https" else "Secure HTTPS. ✓",
+        "metric": "", "score": W_HTTPS if scheme != "https" else 0, "triggered": scheme != "https"
     })
 
-    # 10. Path & Subdomain Keyword Analysis 
-    # FIXED: Proper indentation applied to this block
+    # Keyword Analysis
     scan_target = f"{subdomain.lower()}/{parsed.path.lower()}?{parsed.query.lower()}"
     matched_kws = [kw for kw in _PHISHING_PATH_KEYWORDS if kw in scan_target]
     path_hit = len(matched_kws) >= 1
     checks.append({
         "name": "path_keywords", "label": "Path Keywords",
         "status": "UNSAFE" if path_hit else "SAFE",
-        "message": f"Phishing keywords ({', '.join(matched_kws)}) found in URL." if path_hit else "No suspicious keywords. ✓",
+        "message": f"Keywords found: {', '.join(matched_kws)}" if path_hit else "No suspicious keywords. ✓",
         "metric": "", "score": W_PATH_KEYWORDS if path_hit else 0, "triggered": path_hit
     })
 
-    # 11. SLD Keyword Analysis
     sld_lower = domain.lower()
     matched_sld = [kw for kw in _SUSPICIOUS_SLD_KEYWORDS if kw in sld_lower]
     sld_hit = len(matched_sld) >= 1
     checks.append({
         "name": "sld_keywords", "label": "Suspicious Domain Name",
         "status": "UNSAFE" if sld_hit else "SAFE",
-        "message": f"Domain name contains suspicious keyword(s): {', '.join(matched_sld[:3])}." if sld_hit else "No brand impersonation patterns. ✓",
+        "message": f"Suspicious keyword: {', '.join(matched_sld[:2])}" if sld_hit else "No brand impersonation. ✓",
         "metric": "", "score": W_SLD_KEYWORDS if sld_hit else 0, "triggered": sld_hit
     })
 
-    # 12. URL Shortener Detection
-    etld1 = f"{domain}.{suffix}".lower()
-    short_hit = (etld1 in KNOWN_SHORTENERS or full_host.lower() in KNOWN_SHORTENERS) and total_hops == 0
-    checks.append({
-        "name": "url_shortener", "label": "URL Shortener (Hidden Destination)",
-        "status": "UNSAFE" if short_hit else "SAFE",
-        "message": f"URL shortener '{etld1}' hides the final destination." if short_hit else "Destination is directly visible. ✓",
-        "metric": "", "score": W_URL_SHORTENER if short_hit else 0, "triggered": short_hit
-    })
-
-    # ── FINAL AGGREGATION & OVERRIDES ──
+    # --- PHASE 4: REPUTATION OVERRIDE (FALSE POSITIVE KILLER) ---
+    is_trusted = is_highly_trusted(domain) or is_highly_trusted(full_host)
+    
+    # Calculate initial sum
     total_risk = sum(c['score'] for c in checks)
+    
+    if is_trusted:
+        # MASSIVE reduction for high-reputation domains (Tranco Top 100k)
+        total_risk = total_risk * 0.1
+    
+    # Apply Critical Floor Overrides
     for c in checks:
         if c['triggered'] and c['name'] in _CRITICAL_OVERRIDE_FLOORS:
-            total_risk = max(total_risk, _CRITICAL_OVERRIDE_FLOORS[c['name']])
+            # If trusted, the floor shouldn't be as aggressive
+            floor = _CRITICAL_OVERRIDE_FLOORS[c['name']]
+            if is_trusted: floor *= 0.4 
+            total_risk = max(total_risk, floor)
             
     risk_score = min(100, total_risk)
 
-    if blocklisted:
-        risk_score = 100
-    elif allowlisted:
-        risk_score = 0
+    # Admin overrides
+    if blocklisted: risk_score = 100
+    elif allowlisted: risk_score = 0
 
-    triggered_names = [c['name'] for c in checks if c['triggered']]
-    if "suspicious_tld" in triggered_names and "sld_keywords" in triggered_names and not (blocklisted or allowlisted):
-        risk_score = max(risk_score, 35)
-
-    # FIXED: Normalized risk labels to match 0-29 / 30-59 / 60+ scale
+    # Risk Labeling (0-29 Safe, 30-59 Warning, 60+ Danger)
     risk_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
 
     if blocklisted:
         assessment_text = "Known Malicious Domain. Blocked by Administrator."
     elif allowlisted:
         assessment_text = "Trusted Domain. Approved by Administrator."
+    elif is_trusted:
+        assessment_text = f"Verified high-reputation domain. Heuristic noise suppressed."
     else:
         assessment_text = f"The provided URL appears to be {risk_label.upper()} based on analyzed indicators."
 
     return {
-        "url": url,
-        "resolved_url": target_url,
-        "risk_score": risk_score,
-        "risk_label": risk_label,
-        "checks": checks,
-        "redirect_chain": chain,
-        "hop_count": total_hops,
+        "url": url, "resolved_url": target_url,
+        "risk_score": int(risk_score), "risk_label": risk_label,
+        "checks": checks, "redirect_chain": chain, "hop_count": total_hops,
         "overall_assessment": assessment_text
     }
 
