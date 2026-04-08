@@ -1,5 +1,5 @@
 """
-reputation.py — Integrated Reputation & Trust Engine (v2.1.0)
+reputation.py — Integrated Reputation & Trust Engine (v2.1.1)
 ===========================================================
 Handles multi-tier domain trust verification. 
 Combines high-performance Tranco Top 1M lookups with 
@@ -39,13 +39,21 @@ _BUILTIN_BLOCKLIST: frozenset[str] = frozenset({
 # ── 2. Data Loading (Tranco Tier) ─────────────────────────────────────────────
 
 def load_reputation_data():
-    """Loads the Tranco list into memory on startup for the 'Trust Buffer'."""
+    """
+    Loads the Tranco list into memory on startup.
+    Uses absolute path resolution to find data in the project root.
+    """
     global _TRUSTED_DOMAINS
-    # Standard path within the project structure
-    data_path = os.path.join(os.getcwd(), 'app', 'data', 'tranco_top_100k.csv')
+    
+    # Get the directory where this file resides (backend/app/engine/)
+    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+    
+    # Step up twice to 'backend/' then into 'data/'
+    data_path = os.path.abspath(os.path.join(base_dir, '..', '..', 'data', 'tranco_top_100k.csv'))
     
     try:
         if not os.path.exists(data_path):
+            # Log exact path to help debugging if it fails again
             current_app.logger.warning(f"⚠️ Reputation file missing at {data_path}. Skipping Tranco load.")
             return
 
@@ -80,15 +88,9 @@ def is_allowlisted(url_or_hostname: str) -> bool:
     """Multi-tier trust check: Tranco -> Built-in -> Database."""
     domain = _get_etld1(url_or_hostname)
     
-    # Tier 1: Global Reputation
-    if domain in _TRUSTED_DOMAINS:
+    if domain in _TRUSTED_DOMAINS or domain in _BUILTIN_ALLOWLIST:
         return True
     
-    # Tier 2: Built-in Seeds
-    if domain in _BUILTIN_ALLOWLIST:
-        return True
-    
-    # Tier 3: Database Overrides
     try:
         from ..models.db_models import AllowlistEntry
         return AllowlistEntry.query.filter_by(domain=domain).first() is not None
@@ -162,4 +164,3 @@ def seed_database() -> None:
             
     except Exception as e:
         print(f"DB Error seeding database: {e}")
-
