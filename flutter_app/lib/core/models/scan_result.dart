@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 
 // ── SecurityCheck ────────────────────────────────────────────────────────────
+
 class SecurityCheck {
   const SecurityCheck({
     required this.name,
@@ -13,14 +14,14 @@ class SecurityCheck {
     this.detail,
   });
 
-  final String name;
-  final String label;
-  final String status;
-  final bool triggered;
-  final int score;
-  final String message;
-  final String metric;
-  final String? detail;
+  final String name;     // Machine key (e.g., 'ip_literal')
+  final String label;    // Human title (e.g., 'IP Address Literal')
+  final String status;   // "SAFE", "WARNING", "DANGER"
+  final bool triggered;  // Logic-based flag
+  final int score;       // Numerical risk contribution
+  final String message;  // Primary finding description
+  final String metric;   // Technical data (e.g., 'Entropy: 3.32')
+  final String? detail;  // Optional extended info
 
   // Compatibility getter for the Lesson UI
   bool get isThreat => triggered || status == 'DANGER' || status == 'WARNING';
@@ -31,6 +32,7 @@ class SecurityCheck {
         status: j['status']?.toString() ?? 'SAFE',
         triggered: j['triggered'] as bool? ?? (j['status'] != 'SAFE'),
         score: (j['score'] as num?)?.toInt() ?? 0,
+        // Accept either 'message' or legacy 'description'
         message: j['message']?.toString() ?? j['description']?.toString() ?? '',
         metric: j['metric']?.toString() ?? '',
         detail: j['detail']?.toString(),
@@ -49,6 +51,7 @@ class SecurityCheck {
 }
 
 // ── ScanResult ───────────────────────────────────────────────────────────────
+
 class ScanResult {
   ScanResult({
     required this.id,
@@ -71,7 +74,7 @@ class ScanResult {
   final String url;
   final String resolvedUrl;
   final int riskScore;
-  final String riskLabel;
+  final String riskLabel; // 'safe' | 'warning' | 'danger'
   final List<SecurityCheck> checks;
   final List<String> redirectChain;
   final int hopCount;
@@ -82,81 +85,45 @@ class ScanResult {
   final bool isBlocklisted;
   bool reported;
 
-  // UI Helpers
+  // ── UI Helpers ─────────────────────────────────────────────────────────────
+
   bool get isSafe => riskScore < 30;
   bool get isWarning => riskScore >= 30 && riskScore < 70;
   bool get isDanger => riskScore >= 70;
 
-  // FIXED: Getter for MicroLessonScreen
+  /// Prioritizes the most critical threat for display in Micro-Lessons
   SecurityCheck? get worstCheck {
     if (checks.isEmpty) return null;
-    return checks.firstWhere((c) => c.status == 'DANGER', 
-           orElse: () => checks.firstWhere((c) => c.isThreat, 
-           orElse: () => checks.first));
+    try {
+      return checks.firstWhere((c) => c.status == 'DANGER',
+          orElse: () => checks.firstWhere((c) => c.isThreat, 
+          orElse: () => checks.first));
+    } catch (_) {
+      return checks.first;
+    }
   }
 
   String get displayHost {
     try {
-      return Uri.parse(resolvedUrl.isEmpty ? url : resolvedUrl).host.replaceFirst('www.', '');
+      final uri = Uri.parse(resolvedUrl.isEmpty ? url : resolvedUrl);
+      return uri.host.replaceFirst('www.', '');
     } catch (_) {
-      return url;
+      return url.length > 30 ? '${url.substring(0, 30)}...' : url;
     }
   }
 
-  factory ScanResult.fromJson(Map<String, dynamic> j) {
-    return ScanResult(
-      id: j['id']?.toString() ?? const Uuid().v4(),
-      url: j['url']?.toString() ?? j['raw_url']?.toString() ?? '',
-      resolvedUrl: j['resolved_url']?.toString() ?? '',
-      riskScore: (j['risk_score'] as num?)?.toInt() ?? 0,
-      riskLabel: j['risk_label']?.toString() ?? 'safe',
-      topThreat: j['top_threat']?.toString(),
-      isAllowlisted: j['is_allowlisted'] == true,
-      isBlocklisted: j['is_blocklisted'] == true,
-      hopCount: (j['hop_count'] as num?)?.toInt() ?? 0,
-      overallAssessment: j['overall_assessment']?.toString() ?? '',
-      scannedAt: j['analysed_at'] != null
-          ? DateTime.tryParse(j['analysed_at'].toString()) ?? DateTime.now()
-          : DateTime.now(),
-      redirectChain: (j['redirect_chain'] as List?)?.map((e) => e.toString()).toList() ?? [],
-      checks: (j['checks'] as List?)?.map((e) => SecurityCheck.fromJson(e)).toList() ?? [],
-      reported: j['reported'] == true,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'url': url,
-        'resolved_url': resolvedUrl,
-        'risk_score': riskScore,
-        'risk_label': riskLabel,
-        'top_threat': topThreat,
-        'is_allowlisted': isAllowlisted,
-        'is_blocklisted': isBlocklisted,
-        'hop_count': hopCount,
-        'overall_assessment': overallAssessment,
-        'analysed_at': scannedAt.toIso8601String(),
-        'redirect_chain': redirectChain,
-        'checks': checks.map((c) => c.toJson()).toList(),
-        'reported': reported,
-      };
-}
-    }
-  }
+  // ── Serialization ──────────────────────────────────────────────────────────
 
   factory ScanResult.fromJson(Map<String, dynamic> j) {
-    // 1. Get raw checks list safely
+    // Defensive parsing for the checks list
     final rawChecks = j['checks'];
     List<SecurityCheck> parsedChecks = [];
 
-    // 2. Defensive Parsing Block: Prevents UI crashes from bad backend data
     if (rawChecks is List) {
       for (var item in rawChecks) {
         if (item is Map) {
-          parsedChecks
-              .add(SecurityCheck.fromJson(Map<String, dynamic>.from(item)));
+          parsedChecks.add(SecurityCheck.fromJson(Map<String, dynamic>.from(item)));
         } else if (item is String) {
-          // Gracefully handle legacy stringified checks
           parsedChecks.add(SecurityCheck(
             name: 'info',
             label: 'Analysis Detail',
@@ -172,7 +139,6 @@ class ScanResult {
 
     return ScanResult(
       id: j['id']?.toString() ?? const Uuid().v4(),
-      // Accept 'url' or fallback to legacy 'raw_url'
       url: j['url']?.toString() ?? j['raw_url']?.toString() ?? '',
       resolvedUrl: j['resolved_url']?.toString() ?? '',
       riskScore: (j['risk_score'] as num?)?.toInt() ?? 0,
@@ -185,12 +151,12 @@ class ScanResult {
       scannedAt: j['analysed_at'] != null
           ? DateTime.tryParse(j['analysed_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
-      redirectChain: (j['redirect_chain'] as List<dynamic>?)
+      redirectChain: (j['redirect_chain'] as List?)
               ?.map((e) => e.toString())
               .where((s) => s.isNotEmpty)
-              .toList() ??
-          [],
+              .toList() ?? [],
       checks: parsedChecks,
+      reported: j['reported'] == true,
     );
   }
 
