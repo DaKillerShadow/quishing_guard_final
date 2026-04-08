@@ -38,32 +38,30 @@ def _extract_token() -> str | None:
     return None
 
 
-def verify_token(token: str) -> dict | None:
-    """Decode and verify a JWT. Returns the payload dict or None."""
+def verify_token(token: str) -> tuple[dict | None, str | None]:
+    """
+    Decode and verify a JWT. 
+    Returns: (payload_dict, error_message)
+    """
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             current_app.config["SECRET_KEY"],
             algorithms=["HS256"],
         )
+        return payload, None
     except jwt.ExpiredSignatureError:
-        return None
+        return None, "Token expired — please log in again"
     except jwt.InvalidTokenError:
-        return None
+        return None, "Invalid token signature"
 
 
 def admin_required(f):
     """
     Route decorator — rejects requests without a valid admin JWT.
 
-    Returns 401 if the token is missing or invalid.
-    Returns 403 if the token is expired.
-
-    Usage:
-        @bp.route("/admin/approve", methods=["POST"])
-        @admin_required
-        def approve_entry():
-            ...
+    Returns 401 if the token is missing, expired, or invalid.
+    Returns 403 if the token belongs to a non-admin user.
     """
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -71,16 +69,15 @@ def admin_required(f):
         if not token:
             return jsonify({"error": "Authorization token required"}), 401
 
-        try:
-            jwt.decode(
-                token,
-                current_app.config["SECRET_KEY"],
-                algorithms=["HS256"],
-            )
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Token expired — please log in again"}), 403
-        except jwt.InvalidTokenError:
-            return jsonify({"error": "Invalid token"}), 401
+        # Use the unified helper function
+        payload, error_msg = verify_token(token)
+        
+        if error_msg:
+            return jsonify({"error": error_msg}), 401
+
+        # THE CRITICAL GUARD: Ensure the token is actually an admin token
+        if payload.get("sub") != "admin":
+            return jsonify({"error": "Insufficient privileges. Admin access required."}), 403
 
         return f(*args, **kwargs)
     return wrapper
