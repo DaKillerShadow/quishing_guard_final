@@ -68,11 +68,20 @@ def scan_image():
         return jsonify({"error": "No file field in request"}), 400
 
     file = request.files["file"]
-    if file.content_type not in _ALLOWED_MIME:
-        return jsonify({
-            "error": f"Unsupported content type '{file.content_type}'. "
-                     f"Use JPEG, PNG, WEBP, or BMP."
-        }), 415
+   raw = file.read(_MAX_BYTES + 1)
+if len(raw) > _MAX_BYTES:
+    return jsonify({"error": "Image exceeds 5 MB limit"}), 413
+
+# Magic-byte validation (replaces Content-Type trust)
+_MAGIC = {
+    b'\xff\xd8\xff': 'jpeg',
+    b'\x89PNG':      'png',
+    b'RIFF':         'webp',   # webp: RIFF????WEBP
+    b'BM':           'bmp',
+}
+detected = next((t for sig, t in _MAGIC.items() if raw[:len(sig)] == sig), None)
+if not detected:
+    return jsonify({"error": "File type not recognised — submit JPEG, PNG, WEBP, or BMP"}), 415
 
     raw = file.read(_MAX_BYTES + 1)
     if len(raw) > _MAX_BYTES:
