@@ -40,7 +40,10 @@ def create_app(test_config: dict | None = None) -> Flask:
         MAX_REDIRECT_HOPS  = int(os.environ.get("MAX_REDIRECT_HOPS", 10)),
         RESOLVER_TIMEOUT   = int(os.environ.get("RESOLVER_TIMEOUT", 5)),
         ENTROPY_THRESHOLD  = float(os.environ.get("ENTROPY_THRESHOLD", 3.5)),
-        CORS_ORIGINS       = os.environ.get("CORS_ORIGINS", "*"),
+        # FIX H-4: Changed default from "*" (allow all origins) to "" (deny all).
+        #           The wildcard default turned the API into an open scanning proxy
+        #           for any website. Set CORS_ORIGINS=https://yourapp.com in .env.
+        CORS_ORIGINS       = os.environ.get("CORS_ORIGINS", ""),  # FIX H-4
         # Admin auth
         ADMIN_USERNAME     = os.environ.get("ADMIN_USERNAME", "admin"),
         ADMIN_PASSWORD     = os.environ.get("ADMIN_PASSWORD", "change-me"),
@@ -84,6 +87,18 @@ def create_app(test_config: dict | None = None) -> Flask:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"]        = "DENY"
         response.headers["Referrer-Policy"]        = "no-referrer"
+        # FIX H-3: Add HSTS — instructs browsers to enforce HTTPS for 2 years.
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+        # FIX H-3: Add CSP — restricts resource origins to prevent XSS via injected scripts.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; "
+            "script-src 'self'; "
+            "connect-src 'self'; "
+            "img-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline'"
+        )
+        # FIX H-3: Lock down sensitive browser APIs not needed by this API service.
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         return response
 
     # ── Register blueprints ────────────────────────────────────────────────
