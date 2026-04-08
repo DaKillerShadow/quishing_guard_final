@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/models/lesson_model.dart';
-import '../../core/models/scan_result.dart';
+// FIXED: Added 'as results' to resolve the ScanResult naming conflict
+import '../../core/models/scan_result.dart' as results;
 import '../../shared/theme/app_theme.dart';
 
 class MicroLessonScreen extends StatefulWidget {
+  // FIXED: Reference results.ScanResult instead of the ambiguous ScanResult
   const MicroLessonScreen({super.key, required this.result});
-  final ScanResult result;
+  final results.ScanResult result;
 
   @override
   State<MicroLessonScreen> createState() => _State();
@@ -16,7 +18,7 @@ class MicroLessonScreen extends StatefulWidget {
 class _State extends State<MicroLessonScreen> {
   bool _bookmarked = false;
 
-  // FIXED: Using the model's 'worstCheck' helper for precise lesson mapping
+  // Using the model's 'worstCheck' helper for precise lesson mapping
   LessonModel get _lesson {
     final worst = widget.result.worstCheck;
     
@@ -25,7 +27,7 @@ class _State extends State<MicroLessonScreen> {
       return LessonModel.catalogue[worst.name] ?? LessonModel.catalogue['generic']!;
     }
 
-    // 2. Fallback: If it's a known blocklisted/allowlisted event but no heuristics triggered
+    // 2. Fallback: If it's a known blocklisted event but no specific heuristics triggered
     if (widget.result.isBlocklisted) return LessonModel.catalogue['generic']!;
     
     // 3. Last Resort: Generic Quishing 101
@@ -146,7 +148,7 @@ class _State extends State<MicroLessonScreen> {
                           fontSize: 12,
                           color: AppColors.muted,
                           height: 1.5)),
-                  // PERSONALIZATION: If this lesson matches the scan, point it out!
+                  // PERSONALIZATION: Highlight the detected threat host
                   if (r.worstCheck?.name == l.key) ...[
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
@@ -258,4 +260,3 @@ class _Section extends StatelessWidget {
         ]),
       );
 }
-
