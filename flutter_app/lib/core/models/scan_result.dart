@@ -87,9 +87,10 @@ class ScanResult {
 
   // ── UI Helpers ─────────────────────────────────────────────────────────────
 
-  bool get isSafe => riskScore < 30;
-  bool get isWarning => riskScore >= 30 && riskScore < 70;
-  bool get isDanger => riskScore >= 70;
+  // ✅ FIXED: Aligned with scorer.py thresholds
+  bool get isSafe    => riskScore < 30;
+  bool get isWarning => riskScore >= 30 && riskScore < 60; 
+  bool get isDanger  => riskScore >= 60; 
 
   /// Prioritizes the most critical threat for display in Micro-Lessons
   SecurityCheck? get worstCheck {
