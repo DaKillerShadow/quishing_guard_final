@@ -171,28 +171,29 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False):
     is_http = parsed.scheme == "http"
     checks.append({"name": "https_mismatch", "label": "HTTPS ENFORCEMENT", "score": 7 if is_http else 0, "triggered": is_http})
 
-    # --- AGGREGATION & OVERRIDES ---
+    # --- PHASE 4: FINAL AGGREGATION ---
     raw_score = sum(c['score'] for c in checks)
     
-    # Immunity Shield
     if is_trusted and not is_puny:
         risk_score = min(raw_score, 10)
     else:
         risk_score = max(0, min(100, raw_score))
-        # Apply Critical Floors
         for c in checks:
             if c['triggered'] and c['name'] in _CRITICAL_OVERRIDE_FLOORS:
                 risk_score = max(risk_score, _CRITICAL_OVERRIDE_FLOORS[c['name']])
 
-    # Final Overrides
     if blocklisted: risk_score = 100
     if allowlisted: risk_score = 0
 
+    # ✅ Define the label once for the dictionary and the assessment string
+    final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
+
+    # ✅ THE FIX: Ensure all keys exist for analyse.py
     return {
         "url": url, 
         "resolved_url": target_url, 
         "risk_score": risk_score, 
-        "risk_label": "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger",
+        "risk_label": final_label,
         "checks": checks, 
-        "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {risk_label.upper()}."
+        "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {final_label.upper()}."
     }
