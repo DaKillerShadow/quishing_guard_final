@@ -23,8 +23,7 @@ echo "🔗 Building with API URL: $SAFE_URL"
 
 # We run 'pub get' manually to ensure everything is synced
 flutter pub get
-flutter build web --release --web-renderer html --dart-define="API_BASE_URL=$SAFE_URL"
-
+flutter build web --release --dart-define=API_BASE_URL=https://quishing-guard-backend.onrender.com
 echo "✅ Build Complete!"
 
 
