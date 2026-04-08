@@ -13,14 +13,15 @@ Rate limit: 10 per minute per IP.
 from __future__ import annotations
 from flask import Blueprint, request, jsonify
 
-from ..engine.reputation import add_to_blocklist, _get_etld1
+# BUG FIX: Imported is_allowlisted to prevent "Trusted Domain Trolling"
+from ..engine            import add_to_blocklist, is_allowlisted
+from ..engine.reputation import _get_etld1  # Internal helper for extraction
 from ..utils.validators  import validate_url_payload
-from ..limiter           import limiter, get_real_client_ip # Use our proxy-safe IP helper
+from ..limiter           import limiter, get_real_client_ip 
 from ..logger            import get_logger
 
 bp  = Blueprint("report", __name__, url_prefix="/api/v1")
 log = get_logger("report")
-
 
 @bp.route("/report", methods=["POST"])
 @limiter.limit("10 per minute")
@@ -37,17 +38,24 @@ def report():
     if not ok:
         return jsonify({"error": msg}), 422
 
-    # 2. Standardize the domain/host extraction
-    # We use our engine's helper to ensure the report matches our detection logic
+    # 2. Trusted Domain Trolling Guard
+    # Prevent users from flooding the admin queue with reports for Google, Apple, etc.
+    if is_allowlisted(url):
+        log.warning("Attempted to report an allowlisted domain", extra={"url": url, "ip": get_real_client_ip()})
+        return jsonify({"error": "This domain is a verified trusted system domain and cannot be reported."}), 403
+
+    # 3. Standardize the domain/host extraction
     host = _get_etld1(url)
     if not host:
         return jsonify({"error": "Could not extract a valid domain from the provided URL"}), 422
 
-    # 3. Queue for admin review (is_approved=False is handled inside add_to_blocklist)
-    add_to_blocklist(host, reason=reason)
-    
-    # 4. Log the report with the real client IP for abuse tracking
+    # 4. Queue for admin review
     client_ip = get_real_client_ip()
+    
+    # Passing the IP so the admin dashboard shows WHO reported it (Abuse tracking)
+    add_to_blocklist(host, reason=reason, reporter_ip=client_ip) 
+    
+    # 5. Log the report
     log.info("Domain queued for review",
              extra={"domain": host, "reason": reason, "ip": client_ip})
 
