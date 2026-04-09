@@ -37,12 +37,12 @@ def analyse():
 
     # 3. Resolve redirects
     # OPTIMIZED: Skip resolution if we already know it's Safe OR Dangerous
-    if allowlisted or blocklisted:
+        if allowlisted or blocklisted:
         resolved_url   = raw_url
         redirect_chain = []
         hop_count      = 0
-        # FIX C-1: build a neutral trace payload — no network call needed for
-        #           allowlisted/blocklisted URLs; score is overridden anyway.
+        
+        # FIX C-1 & UI: build a neutral trace payload — no network call needed
         trace_data_for_scorer = {
             "hop_count":          0,
             "shortener_count":    0,
@@ -60,8 +60,8 @@ def analyse():
             resolved_url   = res.resolved_url
             redirect_chain = res.redirect_chain
             hop_count      = res.hop_count
-            # FIX C-1: capture all trace fields from this single resolve() call
-            #           so analyse_url() can skip its internal trace_redirects().
+            
+            # FIX C-1 & UI: capture all trace fields from this single resolve() call
             trace_data_for_scorer = {
                 "hop_count":          res.hop_count,
                 "shortener_count":    res.shortener_count,
@@ -75,7 +75,8 @@ def analyse():
             resolved_url = raw_url
             redirect_chain = []
             hop_count = 0
-            # FIX C-1: fallback trace data when resolution fails entirely
+            
+            # FIX C-1 & UI: fallback trace data when resolution fails entirely
             trace_data_for_scorer = {
                 "hop_count":          0,
                 "shortener_count":    0,
@@ -84,7 +85,6 @@ def analyse():
                 "meta_refresh_found": False,
                 "error":              str(e),
             }
-
         # Re-check reputation for final destination if it wasn't caught initially
         if not allowlisted:
             allowlisted = is_allowlisted(resolved_url)
