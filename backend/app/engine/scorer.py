@@ -82,13 +82,13 @@ def trace_redirects(start_url: str) -> dict:
     # 1. Resolve network-level hops (301/302)
     res = resolve(start_url)
     
-    tracker_results = {
-        "hop_count":          res.hop_count,
-        "shortener_count":    res.shortener_count,
-        "final_url":          res.resolved_url,
-        "redirect_chain":     res.redirect_chain,   # ← populated for UI display
+        tracker_results = {
+        "hop_count": res.hop_count,
+        "shortener_count": res.shortener_count,
+        "final_url": res.resolved_url,
         "meta_refresh_found": False,
-        "error":              res.error,
+        "error": res.error,
+        "redirect_chain": getattr(res, 'redirect_chain', [])  # FIX: Thread the chain to the UI
     }
 
     # 2. Scrape for Client-Side Evasion (Meta-Refresh)
