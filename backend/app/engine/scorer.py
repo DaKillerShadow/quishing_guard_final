@@ -76,13 +76,12 @@ _CRITICAL_OVERRIDE_FLOORS = {
 }
 
 # ── 2. The Unroller (Redirect & Evasion Logic) ───────────────────────────────
-
 def trace_redirects(start_url: str) -> dict:
     """Unmasks the final destination and detects hidden HTML redirects."""
     # 1. Resolve network-level hops (301/302)
     res = resolve(start_url)
     
-        tracker_results = {
+    tracker_results = {
         "hop_count": res.hop_count,
         "shortener_count": res.shortener_count,
         "final_url": res.resolved_url,
@@ -94,7 +93,6 @@ def trace_redirects(start_url: str) -> dict:
     # 2. Scrape for Client-Side Evasion (Meta-Refresh)
     if not res.error:
         try:
-            # Minimal stream to save bandwidth on Render
             with requests.get(res.resolved_url, timeout=4, stream=True, 
                               headers={'User-Agent': 'Mozilla/5.0 QuishingGuard/1.0'}) as r:
                 chunk = r.raw.read(10000, decode_content=True)
