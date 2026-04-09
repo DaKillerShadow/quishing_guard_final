@@ -37,7 +37,7 @@ def analyse():
 
     # 3. Resolve redirects
     # OPTIMIZED: Skip resolution if we already know it's Safe OR Dangerous
-        if allowlisted or blocklisted:
+    if allowlisted or blocklisted:
         resolved_url   = raw_url
         redirect_chain = []
         hop_count      = 0
@@ -85,6 +85,7 @@ def analyse():
                 "meta_refresh_found": False,
                 "error":              str(e),
             }
+            
         # Re-check reputation for final destination if it wasn't caught initially
         if not allowlisted:
             allowlisted = is_allowlisted(resolved_url)
