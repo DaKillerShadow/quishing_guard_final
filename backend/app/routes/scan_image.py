@@ -103,7 +103,12 @@ def scan_image():
                     continue  # FIX H-1: do not pass non-URL payloads to analyse_url()
 
                 # 🔥 THE MERGE: Run the 11-pillar analysis on the detected code
-                analysis_result = analyse_url(payload)
+                from ..engine.scorer import trace_redirects
+trace = trace_redirects(payload)
+analysis_result = analyse_url(
+    payload,
+    trace_data=trace,
+)
                 
                 found_payloads.append({
                     "payload":  payload,
