@@ -151,7 +151,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     # 2. IP Address Literal
     is_ip = False
     try:
-        ipaddress.ip_address(domain); is_ip = True
+        ipaddress.ip_address(full_host); is_ip = True  # ✅ FIX: Evaluates full_host instead of domain
     except ValueError:  # FIX H-2: narrowed from bare except (was catching SystemExit etc.)
         pass
     checks.append({
@@ -160,7 +160,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "status":    "UNSAFE" if is_ip else "SAFE",
         "message":   "Link uses a raw IP address instead of a registered domain name." if is_ip
                      else "Link uses a proper registered domain name. ✓",
-        "metric":    f"Host: {domain}" if is_ip else "",
+        "metric":    f"Host: {full_host}" if is_ip else "", # ✅ FIX: Displays full_host
         "score":     25 if is_ip else 0,
         "triggered": is_ip,
     })
@@ -309,4 +309,3 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "checks":             checks,
         "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {final_label.upper()}.",
     }
-
