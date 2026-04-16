@@ -104,11 +104,11 @@ def scan_image():
 
                 # 🔥 THE MERGE: Run the 11-pillar analysis on the detected code
                 from ..engine.scorer import trace_redirects
-trace = trace_redirects(payload)
-analysis_result = analyse_url(
-    payload,
-    trace_data=trace,
-)
+                trace = trace_redirects(payload)
+                analysis_result = analyse_url(
+                    payload,
+                    trace_data=trace,
+                )
                 
                 found_payloads.append({
                     "payload":  payload,
