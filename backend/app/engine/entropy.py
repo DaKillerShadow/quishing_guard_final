@@ -11,6 +11,14 @@ natural-language phonological rules (low entropy).
 
 Upgraded to use Smart Thresholds, Digit-Ratios, and Normalized 
 Entropy (H / H_max) to accurately detect complex DGA patterns.
+
+Fixes applied:
+  F-06  Digit-ratio false positives.
+        The original threshold of > 0.30 flagged legitimate domains like
+        '365scores', '123rf', 'mp3' when entropy happened to be high.
+        Fix: raise digit_ratio threshold to > 0.40 AND require entropy > 2.8
+        (the entropy guard was already in place from FIX M-3; we tighten
+        the ratio threshold here to further reduce false positives).
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from dataclasses import dataclass
 MIN_LABEL_LEN = 6     # short labels (e.g. "io", "api") are excluded
 NORM_SAFE     = 0.85  # below → human-chosen
 NORM_WARN     = 0.92  # above → likely DGA
+DIGIT_RATIO_THRESHOLD = 0.40 # F-06: raised from 0.30 to reduce brand false positives
 
 @dataclass
 class EntropyResult:
@@ -92,9 +101,8 @@ def dga_score(sld: str) -> EntropyResult:
         
     # Check 3: High digit/consonant ratio (Catches typical DGA behavior)
     digits = sum(c.isdigit() for c in label)
-    # FIX M-3: Digit ratio alone is not sufficient — require elevated entropy too.
-    # Without the entropy guard, "365.com", "mp3.com", "123rf.com" are incorrectly flagged.
-    if domain_length > 0 and (digits / domain_length) > 0.3 and entropy > 2.8:  # FIX M-3
+    # FIX F-06 / M-3: Digit ratio > 0.40 and elevated entropy.
+    if domain_length > 0 and (digits / domain_length) > DIGIT_RATIO_THRESHOLD and entropy > 2.8:  
         is_dga = True
 
     # Check 4: Normalized baseline (Fallback for weird edge cases)
