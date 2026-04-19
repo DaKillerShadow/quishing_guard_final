@@ -40,9 +40,9 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, unquote
 
 # Internal Engine Imports
-from app.engine.entropy import dga_score
-from app.engine.reputation import is_highly_trusted
-from app.engine.resolver import resolve
+from .entropy    import dga_score
+from .reputation import is_highly_trusted
+from .resolver   import resolve
 
 # ── 1. Configuration & Threat Intelligence ────────────────────────────────────
 
