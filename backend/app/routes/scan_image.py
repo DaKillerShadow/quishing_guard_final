@@ -23,8 +23,7 @@ from flask import Blueprint, request, jsonify
 
 from ..limiter import limiter
 from ..logger import get_logger
-from ..engine.resolver import resolve, trace_redirects
-from ..engine.scorer import analyse_url                  # FIX M-1: canonical import
+from ..engine.scorer import analyse_url, trace_redirect                # FIX M-1: canonical import
 from ..utils.validators import validate_url_payload      # FIX H-1
 
 # FIX M-5: Removed url_prefix from the Blueprint() constructor.
