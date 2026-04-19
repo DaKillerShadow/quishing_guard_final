@@ -72,6 +72,7 @@ def scan_image():
     )
 
     found_payloads: list[dict] = []
+    skipped_payloads: list[dict] = []
 
     # ── 3a. Detection Phase (OpenCV + WeChat Fallback) ───────────────────────
     detector = cv2.QRCodeDetector()
@@ -100,18 +101,21 @@ def scan_image():
     if decoded_list:
         for payload, bbox in zip(decoded_list, bboxes):
             if payload and payload.strip():
-                
+                bbox_data = bbox.tolist() if bbox is not None else None
+
                 # FIX H-1: Validate payload before passing it to the scoring engine.
+                # Non-URL payloads (vCards, WiFi configs, plain text) go into a
+                # separate `skipped` list rather than polluting the `codes` results
+                # or crashing the engine with non-URL input.
                 is_valid, reason = validate_url_payload(payload)
                 if not is_valid:
-                    found_payloads.append({
+                    skipped_payloads.append({
                         "payload":     payload,
-                        "analysis":    None,
-                        "skip_reason": reason,          # FIX H-1: surface reason to caller
-                        "detector":    detector_label,  # FIX M-2: pre-computed label
-                        "bbox":        bbox.tolist() if bbox is not None else None,
+                        "skip_reason": reason,
+                        "detector":    detector_label,
+                        "bbox":        bbox_data,
                     })
-                    continue  
+                    continue
 
                 # FIX F-02: resolve once here, pass trace_data into analyse_url
                 # This explicitly eliminates the redundant network request.
@@ -124,16 +128,24 @@ def scan_image():
                 found_payloads.append({
                     "payload":  payload,
                     "analysis": analysis_result,    
-                    "detector": detector_label,     # FIX M-2: pre-computed label
-                    "bbox":     bbox.tolist() if bbox is not None else None,
+                    "detector": detector_label,
+                    "bbox":     bbox_data,
                 })
 
     log.info("Image scan completed", extra={
-        "found": len(found_payloads), 
-        "ip": request.remote_addr
+        "found":   len(found_payloads),
+        "skipped": len(skipped_payloads),
+        "ip":      request.remote_addr,
     })
 
-    return jsonify({
-        "found": len(found_payloads), 
-        "codes": found_payloads
-    }), 200
+    response = {
+        "found": len(found_payloads),   # count of analysed URL codes only
+        "codes": found_payloads,
+    }
+    # Only include `skipped` key when there are non-URL payloads — keeps the
+    # response clean for the common case where every code is a URL.
+    if skipped_payloads:
+        response["skipped"] = skipped_payloads
+
+    return jsonify(response), 200
+
