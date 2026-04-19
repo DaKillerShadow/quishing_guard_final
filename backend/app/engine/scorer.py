@@ -299,13 +299,22 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
 
     # ✅ Define the label once for the dictionary and the assessment string
     final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
+    
+    # ✅ Extract the top threat label dynamically to satisfy the Frontend/API payload
+    triggered_checks = [c for c in checks if c["triggered"] and c["score"] > 0]
+    top_threat = max(triggered_checks, key=lambda c: c["score"])["label"] if triggered_checks else "None"
 
-    # ✅ THE FIX: Ensure all keys exist for analyse.py
+    # ✅ THE FIX: Ensure all required keys exist for analyse.py & the Flutter UI
     return {
         "url":                url,
         "resolved_url":       target_url,
         "risk_score":         risk_score,
         "risk_label":         final_label,
+        "top_threat":         top_threat,
+        "redirect_chain":     trace_data.get("redirect_chain", []),
+        "hop_count":          trace_data.get("hop_count", 0),
+        "is_allowlisted":     allowlisted,
+        "is_blocklisted":     blocklisted,
         "checks":             checks,
         "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {final_label.upper()}.",
     }
