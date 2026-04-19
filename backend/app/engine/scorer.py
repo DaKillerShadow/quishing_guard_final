@@ -42,7 +42,7 @@ from urllib.parse import urlparse, unquote
 # Internal Engine Imports
 from app.engine.entropy import dga_score
 from app.engine.reputation import is_highly_trusted
-from app.engine.scorer import analyse_url, trace_redirects
+from app.engine.resolver import resolve
 
 # ── 1. Configuration & Threat Intelligence ────────────────────────────────────
 
