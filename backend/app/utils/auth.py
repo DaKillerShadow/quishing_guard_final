@@ -9,6 +9,13 @@ Token lifecycle:
 
 Token payload:
   { "sub": "admin", "iat": <unix>, "exp": <unix> }
+
+Fixes applied:
+  F-04  `admin_required` previously called jwt.decode() directly, duplicating
+        the logic already in verify_token().  This created maintenance drift
+        risk: if the algorithm, secret, or audience ever changed, only one
+        call site would be updated.
+        Fix: admin_required now delegates entirely to verify_token().
 """
 from __future__ import annotations
 import jwt
@@ -56,14 +63,10 @@ def admin_required(f):
     """
     Route decorator — rejects requests without a valid admin JWT.
 
-    Returns 401 if the token is missing or invalid.
-    Returns 403 if the token is expired.
-
-    Usage:
-        @bp.route("/admin/approve", methods=["POST"])
-        @admin_required
-        def approve_entry():
-            ...
+    F-04 FIX: delegates to verify_token() instead of calling jwt.decode()
+    directly. Any future changes to algorithm, secret handling, or audience
+    are made in exactly one place (verify_token), and this decorator
+    automatically inherits them.
     """
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -71,16 +74,11 @@ def admin_required(f):
         if not token:
             return jsonify({"error": "Authorization token required"}), 401
 
-        try:
-            jwt.decode(
-                token,
-                current_app.config["SECRET_KEY"],
-                algorithms=["HS256"],
-            )
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Token expired — please log in again"}), 403
-        except jwt.InvalidTokenError:
-            return jsonify({"error": "Invalid token"}), 401
+        # F-04 FIX: Single authoritative decode path.
+        payload = verify_token(token)
+        
+        if payload is None:
+            return jsonify({"error": "Token expired or invalid — please log in again"}), 401
 
         return f(*args, **kwargs)
     return wrapper
