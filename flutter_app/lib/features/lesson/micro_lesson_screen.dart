@@ -296,9 +296,9 @@ class _State extends State<MicroLessonScreen> {
         _comparisonRow(
           label: 'LEGITIMATE SITE',
           value: l.realCounterpart,
-          labelColor: AppColors.safe,
-          valueColor: AppColors.safe,
-          dotColor: AppColors.safe,
+          labelColor: AppColors.jade,
+          valueColor: AppColors.jade,
+          dotColor: AppColors.jade,
         ),
       ]),
     );
