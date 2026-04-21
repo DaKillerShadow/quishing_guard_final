@@ -60,7 +60,7 @@ _PHISHING_KEYWORDS = frozenset({
     "uaepass", "tamm", "emirates", "dewa", "adcb", "etisalat", "du-mobile",
     "nafath", "absher", "tawakkalna", "alrajhi", "stc-pay", "saudi-post",
     "aramex", "dhl", "tracking", "parcel", "delivery","proxy", "poxy", "proxie", "vpn", "tunnel", "socks", 
-"anon", "bypass", "relay", "mirror", "tor", "darkweb", "hide"
+    "anon", "bypass", "relay", "mirror", "tor", "darkweb", "hide"
 })
 
 KNOWN_SHORTENERS = frozenset({
@@ -168,8 +168,8 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
 
     # 3. Punycode/Homograph Attack
     is_puny_encoded  = "xn--" in full_host      # catches raw punycode
-is_unicode_spoof = not full_host.isascii()  # catches pàypal.com, аррlе.com etc.
-is_puny = is_puny_encoded or is_unicode_spoof
+    is_unicode_spoof = not full_host.isascii()  # catches pàypal.com, аррlе.com etc.
+    is_puny = is_puny_encoded or is_unicode_spoof
     checks.append({
         "name":      "punycode",
         "label":     "PUNYCODE ATTACK",
@@ -289,22 +289,25 @@ is_puny = is_puny_encoded or is_unicode_spoof
     # --- PHASE 4: FINAL AGGREGATION ---
     raw_score = sum(c['score'] for c in checks)
     
+    non_reputation_triggered = sum(
+        1 for c in checks
+        if c['triggered'] and c['name'] != 'reputation' and c['score'] > 0
+    )
+
     if is_trusted and not is_puny:
         risk_score = min(raw_score, 10)
     else:
         risk_score = max(0, min(100, raw_score))
+        
+        if non_reputation_triggered >= 2:
+            risk_score = max(risk_score, 35)
+            
         for c in checks:
             if c['triggered'] and c['name'] in _CRITICAL_OVERRIDE_FLOORS:
                 risk_score = max(risk_score, _CRITICAL_OVERRIDE_FLOORS[c['name']])
 
     if blocklisted: risk_score = 100
     if allowlisted: risk_score = 0
-    non_reputation_triggered = sum(
-    1 for c in checks
-    if c['triggered'] and c['name'] != 'reputation' and c['score'] > 0
-)
-if non_reputation_triggered >= 2:
-    risk_score = max(risk_score, 35)
 
     # ✅ Define the label once for the dictionary and the assessment string
     final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
@@ -327,3 +330,4 @@ if non_reputation_triggered >= 2:
         "checks":             checks,
         "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {final_label.upper()}.",
     }
+
