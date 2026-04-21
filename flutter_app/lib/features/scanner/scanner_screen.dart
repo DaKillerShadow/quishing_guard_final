@@ -13,7 +13,7 @@ import '../../core/services/history_service.dart';
 import '../../core/utils/api_exception.dart';
 import '../../core/utils/app_constants.dart'; 
 import '../../shared/theme/app_theme.dart';
-import '../../shared/widgets/scan_overlay.dart'; // Just remove the 'hide QGLoader' part
+import '../../shared/widgets/scan_overlay.dart'; 
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/security_error_widget.dart';
 
@@ -73,7 +73,6 @@ class ScannerController extends StateNotifier<ScannerState> {
   ];
   int _demoIdx = 0;
 
-  // ✅ Added: Public method to update torch state safely
   void setTorch(bool isOn) {
     state = state.copyWith(torchOn: isOn);
   }
@@ -94,15 +93,27 @@ class ScannerController extends StateNotifier<ScannerState> {
     _analyse(value);
   }
 
-  Future<void> _analyse(String url) async {
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+  Future<void> _analyse(String rawUrl) async {
+    final lower = rawUrl.toLowerCase();
+    
+    // 1. Reject specific non-web schemas to prevent API clutter
+    if (lower.startsWith('wifi:') || 
+        lower.startsWith('begin:vcard') || 
+        lower.startsWith('tel:') || 
+        lower.startsWith('mailto:') || 
+        lower.startsWith('sms:')) {
       state = state.copyWith(
         state: ScanState.error,
-        errorMsg: 'Not a valid URL. QR code contains text: "$url"',
+        errorMsg: 'Not a valid URL. QR code contains text: "$rawUrl"',
         statusMsg: 'Not a web link — tap to retry',
       );
       return;
     }
+
+    // 2. Normalise raw domains (e.g. xn--pypl-0ra0a.com -> https://xn--pypl-0ra0a.com)
+    final url = (lower.startsWith('http://') || lower.startsWith('https://'))
+        ? rawUrl
+        : 'https://$rawUrl';
 
     state = state.copyWith(
       state: ScanState.analysing,
@@ -278,7 +289,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       children: [
                         GestureDetector(
                           onTap: () => _showArchitectDialog(context),
-                          child: _TopChip(
+                          child: const _TopChip(
                               icon: '🛡',
                               label: 'Quishing Guard',
                               color: AppColors.arc),
@@ -289,7 +300,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           active: scanState.torchOn,
                           onTap: () async {
                             await _cam.toggleTorch();
-                            // ✅ Fixed: Calling controller method instead of setting state directly
                             ref.read(scannerStateProvider.notifier).setTorch(!scanState.torchOn);
                           },
                         ),
@@ -308,10 +318,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       fontSize: 13,
                       fontWeight: FontWeight.w300,
                       letterSpacing: 1.5,
-                      color: AppColors.textColor.withValues(alpha: 0.6), // ✅ Fixed Deprecation
+                      color: AppColors.textColor.withValues(alpha: 0.6), 
                       fontStyle: FontStyle.italic,
                       shadows: [
-                        Shadow(blurRadius: 8, color: Colors.black.withValues(alpha: 0.8)) // ✅ Fixed Deprecation
+                        Shadow(blurRadius: 8, color: Colors.black.withValues(alpha: 0.8)) 
                       ],
                     ),
                   ),
@@ -333,7 +343,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       end: Alignment.topCenter,
                       colors: [
                         AppColors.void_bg,
-                        AppColors.void_bg.withValues(alpha: 0) // ✅ Fixed Deprecation
+                        AppColors.void_bg.withValues(alpha: 0) 
                       ],
                     ),
                   ),
@@ -343,14 +353,14 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppColors.panel.withValues(alpha: .9), // ✅ Fixed Deprecation
+                          color: AppColors.panel.withValues(alpha: .9), 
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: AppColors.rim),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.qr_code_scanner_rounded, size: 14, color: AppColors.arc),
+                            const Icon(Icons.qr_code_scanner_rounded, size: 14, color: AppColors.arc),
                             const SizedBox(width: 8),
                             Text(scanState.statusMsg,
                                 style: const TextStyle(
@@ -404,13 +414,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
-                                '<\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
+                                '<\\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
                                 textAlign: TextAlign.center,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontFamily: 'monospace',
                                   fontSize: 9,
-                                  color: AppColors.muted.withValues(alpha: 0.7), // ✅ Fixed Deprecation
+                                  color: AppColors.muted.withValues(alpha: 0.7), 
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -424,7 +434,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               ),
             ),
 
-          if (isLoading) Positioned.fill(child: const QGLoader()),
+          if (isLoading) const Positioned.fill(child: QGLoader()),
           if (hasError)
             Positioned.fill(
               child: SecurityErrorWidget(
@@ -470,9 +480,9 @@ class _TopChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: .1), // ✅ Fixed Deprecation
+            color: color.withValues(alpha: .1), 
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withValues(alpha: .3))), // ✅ Fixed Deprecation
+            border: Border.all(color: color.withValues(alpha: .3))), 
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(icon, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
@@ -492,9 +502,9 @@ class _IconBtn extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-              color: active ? AppColors.amber.withValues(alpha: .15) : AppColors.panel.withValues(alpha: .8), // ✅ Fixed Deprecation
+              color: active ? AppColors.amber.withValues(alpha: .15) : AppColors.panel.withValues(alpha: .8), 
               shape: BoxShape.circle,
-              border: Border.all(color: active ? AppColors.amber.withValues(alpha: .4) : AppColors.rim)), // ✅ Fixed Deprecation
+              border: Border.all(color: active ? AppColors.amber.withValues(alpha: .4) : AppColors.rim)), 
           child: Icon(icon, size: 18, color: active ? AppColors.amber : AppColors.muted),
         ),
       );
@@ -511,9 +521,9 @@ class _CtrlBtn extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-              color: highlight ? AppColors.arc.withValues(alpha: .1) : AppColors.panel.withValues(alpha: .9), // ✅ Fixed Deprecation
+              color: highlight ? AppColors.arc.withValues(alpha: .1) : AppColors.panel.withValues(alpha: .9), 
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: highlight ? AppColors.arc.withValues(alpha: .35) : AppColors.rim)), // ✅ Fixed Deprecation
+              border: Border.all(color: highlight ? AppColors.arc.withValues(alpha: .35) : AppColors.rim)), 
           child: Column(children: [
             Text(icon, style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 4),
@@ -522,3 +532,4 @@ class _CtrlBtn extends StatelessWidget {
         ),
       );
 }
+
