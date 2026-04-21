@@ -299,6 +299,12 @@ is_puny = is_puny_encoded or is_unicode_spoof
 
     if blocklisted: risk_score = 100
     if allowlisted: risk_score = 0
+    non_reputation_triggered = sum(
+    1 for c in checks
+    if c['triggered'] and c['name'] != 'reputation' and c['score'] > 0
+)
+if non_reputation_triggered >= 2:
+    risk_score = max(risk_score, 35)
 
     # ✅ Define the label once for the dictionary and the assessment string
     final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
