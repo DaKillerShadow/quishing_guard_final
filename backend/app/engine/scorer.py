@@ -59,7 +59,8 @@ _PHISHING_KEYWORDS = frozenset({
     "vodafone", "fawry", "cib", "bank", "misr", "instapay", "win-prize", 
     "uaepass", "tamm", "emirates", "dewa", "adcb", "etisalat", "du-mobile",
     "nafath", "absher", "tawakkalna", "alrajhi", "stc-pay", "saudi-post",
-    "aramex", "dhl", "tracking", "parcel", "delivery"
+    "aramex", "dhl", "tracking", "parcel", "delivery","proxy", "poxy", "proxie", "vpn", "tunnel", "socks", 
+"anon", "bypass", "relay", "mirror", "tor", "darkweb", "hide"
 })
 
 KNOWN_SHORTENERS = frozenset({
