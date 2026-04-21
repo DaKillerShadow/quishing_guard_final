@@ -49,6 +49,44 @@ class _State extends State<MicroLessonScreen> {
     }
   }
 
+  // Maps lesson type → semantic Flutter icon. No emoji needed.
+  IconData _threatIcon(String threatType) {
+    switch (threatType.toLowerCase()) {
+      case 'ip literal address':
+      case 'ip_literal':
+        return Icons.dns_outlined;
+      case 'homograph attack':
+      case 'punycode':
+        return Icons.translate_rounded;
+      case 'nested shorteners':
+      case 'nested_short':
+        return Icons.link_rounded;
+      case 'html evasion':
+      case 'html_evasion':
+        return Icons.code_off_rounded;
+      case 'dga entropy':
+      case 'dga_entropy':
+        return Icons.casino_outlined;
+      case 'redirect depth':
+      case 'redirect_depth':
+        return Icons.fork_right_rounded;
+      case 'urgency keywords':
+      case 'path_keywords':
+        return Icons.warning_amber_rounded;
+      case 'suspicious tld':
+      case 'suspicious_tld':
+        return Icons.public_off_rounded;
+      case 'subdomain nesting':
+      case 'subdomain_depth':
+        return Icons.account_tree_outlined;
+      case 'no https':
+      case 'https_mismatch':
+        return Icons.lock_open_rounded;
+      default:
+        return Icons.gpp_maybe_outlined;
+    }
+  }
+
   // The actual scanned host to display in "Spot the Threat".
   // Uses resolved URL host first (post-redirect), falls back to raw URL.
   String get _actualThreatDisplay {
@@ -105,7 +143,7 @@ class _State extends State<MicroLessonScreen> {
             padding: const EdgeInsets.fromLTRB(20, 28, 20, 22),
             color: AppColors.panel,
             child: Column(children: [
-              // Glowing container integrating the LessonModel emoji
+              // Glowing Flutter icon — threat-specific, no emoji
               Container(
                 width: 72,
                 height: 72,
@@ -121,9 +159,10 @@ class _State extends State<MicroLessonScreen> {
                     ),
                   ],
                 ),
-                child: Text(
-                  l.emoji,
-                  style: const TextStyle(fontSize: 36),
+                child: Icon(
+                  _threatIcon(l.type),
+                  color: accentColor,
+                  size: 36,
                 ),
               ),
               const SizedBox(height: 14),
@@ -210,7 +249,7 @@ class _State extends State<MicroLessonScreen> {
           // ── Spot the Threat ────────────────────────────────────────
           _Section(
             label: 'SPOT THE THREAT',
-            child: _buildComparisonCard(l, accentColor),
+            child: _buildComparisonCard(l),
           ),
 
           // ── What to do ─────────────────────────────────────────────
@@ -227,7 +266,7 @@ class _State extends State<MicroLessonScreen> {
               child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.lightbulb_outline_rounded,
+                    const Icon(Icons.lightbulb_outline_rounded,
                         color: AppColors.amber, size: 18),
                     const SizedBox(width: 10),
                     Expanded(
@@ -276,7 +315,7 @@ class _State extends State<MicroLessonScreen> {
   // ACTUAL THREAT row shows widget.result's real resolved host
   // Threat value = red/ember. Safe counterpart = green.
 
-  Widget _buildComparisonCard(LessonModel l, Color accentColor) {
+  Widget _buildComparisonCard(LessonModel l) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
