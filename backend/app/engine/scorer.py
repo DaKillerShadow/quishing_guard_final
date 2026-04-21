@@ -166,7 +166,9 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     })
 
     # 3. Punycode/Homograph Attack
-    is_puny = "xn--" in full_host
+    is_puny_encoded  = "xn--" in full_host      # catches raw punycode
+is_unicode_spoof = not full_host.isascii()  # catches pàypal.com, аррlе.com etc.
+is_puny = is_puny_encoded or is_unicode_spoof
     checks.append({
         "name":      "punycode",
         "label":     "PUNYCODE ATTACK",
