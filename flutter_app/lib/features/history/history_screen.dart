@@ -1,8 +1,11 @@
 // lib/features/history/history_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/models/scan_result.dart';
 import '../../core/services/history_service.dart';
@@ -38,12 +41,18 @@ class HistoryScreen extends ConsumerWidget {
         ),
         title: const Text('Scan History'),
         actions: [
-          if (history.isNotEmpty)
+          if (history.isNotEmpty) ...[
+            IconButton(
+              icon: const Icon(Icons.file_download_outlined, size: 18),
+              color: AppColors.muted,
+              onPressed: () => _exportHistoryCSV(context, ref),
+            ),
             IconButton(
               icon: const Icon(Icons.delete_outline_rounded, size: 18),
               color: AppColors.muted,
               onPressed: () => _confirmClear(context, notif),
             ),
+          ]
         ],
       ),
       body: Column(children: [
@@ -100,6 +109,35 @@ class HistoryScreen extends ConsumerWidget {
   }
 
   static Widget get _vDivider => Container(width: 1, height: 36, color: AppColors.rim);
+
+  static Future<void> _exportHistoryCSV(BuildContext context, WidgetRef ref) async {
+    final history = ref.read(historyProvider);
+    if (history.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No history to export!')),
+      );
+      return;
+    }
+
+    final buffer = StringBuffer();
+    // CSV Headers
+    buffer.writeln('Date,URL,Risk Score,Risk Label,Top Threat');
+    
+    for (final item in history) {
+      // Escape URLs in case they contain commas
+      final escapedUrl = item.url.replaceAll('"', '""');
+      buffer.writeln('${item.scannedAt.toIso8601String()},"$escapedUrl",${item.riskScore},${item.riskLabel},"${item.topThreat}"');
+    }
+
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/quishing_guard_history.csv');
+    await file.writeAsString(buffer.toString());
+
+    await Share.shareXFiles(
+      [XFile(file.path)], 
+      text: 'My Quishing Guard Scan History',
+    );
+  }
 
   static void _confirmClear(BuildContext context, HistoryNotifier notif) {
     showDialog(
