@@ -17,6 +17,7 @@ class MicroLessonScreen extends StatefulWidget {
 
 class _State extends State<MicroLessonScreen> {
   bool _bookmarked = false;
+  int? _selectedQuizIndex;
 
   @override
   void initState() {
@@ -38,7 +39,8 @@ class _State extends State<MicroLessonScreen> {
     if (widget.result.topThreat != null &&
         widget.result.topThreat!.isNotEmpty &&
         widget.result.topThreat != 'None') {
-      return LessonModel.forThreat(widget.result.topThreat);
+      // FIXED: Added the '!' operator to tell Dart we are certain it is not null
+      return LessonModel.forThreat(widget.result.topThreat!); 
     }
     try {
       final dangerousCheck = widget.result.checks.firstWhere(
@@ -307,6 +309,12 @@ class _State extends State<MicroLessonScreen> {
             ),
           ),
 
+          // ── Test Your Knowledge (Interactive Quiz) ─────────────────
+          _Section(
+            label: 'TEST YOUR KNOWLEDGE',
+            child: _buildQuiz(l),
+          ),
+
           // ── Actions ───────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -330,6 +338,130 @@ class _State extends State<MicroLessonScreen> {
           ),
         ]),
       ),
+    );
+  }
+
+  // ── Quiz UI Builder ────────────────────────────────────────────────────────
+  Widget _buildQuiz(LessonModel l) {
+    final hasAnswered = _selectedQuizIndex != null;
+    final isCorrect = _selectedQuizIndex == l.correctOptionIndex;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Question Text
+        Text(
+          l.quizQuestion,
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppColors.textColor,
+            fontWeight: FontWeight.w600,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Options
+        ...List.generate(l.quizOptions.length, (index) {
+          final isThisSelected = _selectedQuizIndex == index;
+          final isThisCorrect = index == l.correctOptionIndex;
+          
+          // Determine visual state based on selection logic
+          Color borderColor = AppColors.rim;
+          Color bgColor = AppColors.panel;
+          Widget? trailingIcon;
+
+          if (hasAnswered) {
+            if (isThisCorrect) {
+              borderColor = AppColors.jade;
+              bgColor = AppColors.jade.withValues(alpha: .1);
+              trailingIcon = const Icon(Icons.check_circle_rounded, color: AppColors.jade, size: 18);
+            } else if (isThisSelected) {
+              borderColor = AppColors.ember;
+              bgColor = AppColors.ember.withValues(alpha: .1);
+              trailingIcon = const Icon(Icons.cancel_rounded, color: AppColors.ember, size: 18);
+            }
+          }
+
+          return GestureDetector(
+            onTap: () {
+              if (!hasAnswered) {
+                setState(() => _selectedQuizIndex = index);
+              }
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: borderColor),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l.quizOptions[index],
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: hasAnswered 
+                            ? (isThisCorrect || isThisSelected ? AppColors.textColor : AppColors.muted)
+                            : AppColors.textColor,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  if (trailingIcon != null) ...[
+                    const SizedBox(width: 8),
+                    trailingIcon,
+                  ]
+                ],
+              ),
+            ),
+          );
+        }),
+
+        // Result Banner
+        AnimatedOpacity(
+          opacity: hasAnswered ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 400),
+          child: hasAnswered 
+            ? Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isCorrect 
+                      ? AppColors.jade.withValues(alpha: .15) 
+                      : AppColors.ember.withValues(alpha: .15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isCorrect ? Icons.military_tech_rounded : Icons.info_outline_rounded,
+                      color: isCorrect ? AppColors.jade : AppColors.ember,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        isCorrect 
+                            ? 'Correct! Excellent deduction.' 
+                            : 'Not quite. Review the "How it Works" section above.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isCorrect ? AppColors.jade : AppColors.ember,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : const SizedBox.shrink(),
+        ),
+      ],
     );
   }
 
@@ -465,4 +597,3 @@ class _Section extends StatelessWidget {
         ]),
       );
 }
-

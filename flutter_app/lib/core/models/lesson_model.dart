@@ -1,23 +1,12 @@
 // lib/core/models/lesson_model.dart
-//
-// Educational content for every scoring pillar.
-// Previously only 4 of the 11 backend pillars had lesson entries —
-// the other 7 silently fell through to the generic default, which is why
-// an IP-literal scan showed "General Phishing Risk" instead of the correct
-// "IP Literal Address Detected" lesson.
-//
-// All 11 pillars now have dedicated entries.  The switch matches both:
-//   • backend check `name` keys  (e.g. 'ip_literal')
-//   • backend `top_threat` labels (e.g. 'IP ADDRESS LITERAL')
-// so either value from the API response resolves to the right lesson.
 
 class LessonModel {
-  final String title;
   final String type;
   final String emoji;
+  final String title;
   final String summary;
   final String body;
-  final String example;        // kept for any legacy callers
+  final String example;
   final String realCounterpart;
   final String tip;
   final String quizQuestion;
@@ -25,9 +14,9 @@ class LessonModel {
   final int correctOptionIndex;
 
   const LessonModel({
-    required this.title,
     required this.type,
     required this.emoji,
+    required this.title,
     required this.summary,
     required this.body,
     required this.example,
@@ -38,329 +27,224 @@ class LessonModel {
     required this.correctOptionIndex,
   });
 
-  // ── Factory: maps any backend threat key → lesson content ──────────────────
-  //
-  // Accepts both machine keys ('ip_literal') and label strings
-  // ('IP ADDRESS LITERAL') so callers don't need to normalise.
-
-  factory LessonModel.forThreat(String? threatType) {
-    switch (threatType?.toLowerCase().replaceAll(' ', '_')) {
-
-      // ── 1. IP Literal ───────────────────────────────────────────────────
+  factory LessonModel.forThreat(String threatType) {
+    switch (threatType.toLowerCase()) {
       case 'ip_literal':
-      case 'ip_address_literal':
         return const LessonModel(
-          title: 'IP Literal Address Detected',
-          type: 'IP Literal Address',
+          type: 'ip_literal',
           emoji: '🔢',
-          summary:
-              'The link uses a raw IP address instead of a registered domain name.',
-          body:
-              'Legitimate services always use a domain name (e.g. bank.com). '
-              'Raw IPs are used by attackers to avoid domain reputation checks '
-              'and make the destination impossible to identify at a glance.',
-          example: '185.220.101.52',
-          realCounterpart: 'mybank.com',
-          tip:
-              'Never trust a link that shows a numeric IP address. '
-              'Real organisations always use registered domain names.',
-          quizQuestion:
-              'Why do phishers use raw IP addresses in QR codes?',
+          title: 'IP Address Literal',
+          summary: 'Scammers use raw numbers instead of names to hide their true identity.',
+          body: 'Instead of registering a recognizable domain name, the attacker is hosting the malicious site directly on a server IP address. Legitimate companies almost never do this for public-facing websites.',
+          example: 'http://192.168.1.55/login',
+          realCounterpart: 'https://www.paypal.com/login',
+          tip: 'Never trust a link that is just a string of numbers. Always look for a readable, recognizable brand domain.',
+          quizQuestion: 'Why do attackers use raw IP addresses in links?',
           quizOptions: [
-            'IPs are faster than domain names',
-            'To bypass domain reputation filters and hide the destination',
-            'Because domain names are expensive',
+            'It makes the website load faster',
+            'To bypass brand-name filters and hide their identity',
+            'Because domains are too expensive'
           ],
           correctOptionIndex: 1,
         );
-
-      // ── 2. Punycode / Homograph ─────────────────────────────────────────
       case 'punycode':
-      case 'punycode_attack':
-      case 'homograph_attack':
         return const LessonModel(
+          type: 'punycode',
+          emoji: '🎭',
           title: 'Homograph Attack',
-          type: 'Homograph Attack',
-          emoji: '🕵️',
-          summary:
-              'The domain uses foreign lookalike characters to impersonate a trusted brand.',
-          body:
-              'Attackers replace Latin letters with visually identical Cyrillic '
-              'or Greek characters. The URL looks correct but points to a '
-              'completely different server. Browsers show the "xn--" Punycode '
-              'prefix in the address bar when this is active.',
-          example: 'аррlе.com',
-          realCounterpart: 'apple.com',
-          tip:
-              'Look for "xn--" in the address bar. '
-              'If you see it, the domain uses non-Latin characters.',
-          quizQuestion:
-              'Why is "аррlе.com" dangerous even if it looks identical to apple.com?',
+          summary: 'The link contains foreign characters designed to look like a trusted brand.',
+          body: 'Attackers register domains using Cyrillic or Greek alphabets. For example, using a Cyrillic "а" instead of an English "a". To a computer, they are completely different letters, but to human eyes, they look identical.',
+          example: 'https://pаypal.com (Cyrillic a)',
+          realCounterpart: 'https://paypal.com (English a)',
+          tip: 'Look closely at the URL. If your browser translates the URL into a string starting with "xn--", it is a Punycode homograph attack.',
+          quizQuestion: 'What does a URL starting with "xn--" indicate?',
           quizOptions: [
-            'It uses hidden tracking cookies',
-            'It contains non-English characters that look the same as Latin letters',
-            'It is a shortened link',
+            'It is a highly secure encrypted connection',
+            'It is a special government website',
+            'It is a Punycode translated domain (potential spoofing)'
           ],
-          correctOptionIndex: 1,
+          correctOptionIndex: 2,
         );
-
-      // ── 3. Nested Shorteners ────────────────────────────────────────────
-      case 'nested_short':
-      case 'nested_shorteners':
-        return const LessonModel(
-          title: 'Chained URL Shorteners',
-          type: 'Nested Shorteners',
-          emoji: '🔗',
-          summary:
-              'Multiple URL shorteners are chained to hide the real destination.',
-          body:
-              'Each shortener hop adds a layer of indirection, making the final '
-              'URL invisible until the last moment. This deliberately defeats '
-              'preview tools and reputation checkers that only inspect the first hop.',
-          example: 'bit.ly/abc → tinyurl.com/xyz → malicious.ru',
-          realCounterpart: 'shop.amazon.com/product/123',
-          tip:
-              'Use a link expander (e.g. checkshorturl.com) before clicking '
-              'any shortened link from a QR code.',
-          quizQuestion:
-              'What is the main danger of chaining multiple URL shorteners?',
-          quizOptions: [
-            'They are slower to load',
-            'They conceal the final destination from reputation scanners',
-            'They expire after 24 hours',
-          ],
-          correctOptionIndex: 1,
-        );
-
-      // ── 4. HTML Evasion ─────────────────────────────────────────────────
-      case 'html_evasion':
-      case 'html_meta_refresh':
-        return const LessonModel(
-          title: 'Hidden HTML Redirect',
-          type: 'HTML Evasion',
-          emoji: '👻',
-          summary:
-              'The landing page silently redirects you using a hidden HTML tag.',
-          body:
-              'A meta-refresh tag in the page\'s HTML instructs your browser '
-              'to navigate away immediately — often before you can read the URL. '
-              'This bypasses network-level redirect detection because it happens '
-              'inside the browser after the page loads.',
-          example: '<meta http-equiv="refresh" content="0;url=evil.com">',
-          realCounterpart: 'No redirect on legitimate pages',
-          tip:
-              'If a page loads and instantly jumps somewhere else, '
-              'close the browser tab immediately.',
-          quizQuestion:
-              'How does a meta-refresh redirect differ from a normal 301 redirect?',
-          quizOptions: [
-            'It is faster',
-            'It happens inside the browser after the page loads, bypassing network scanners',
-            'It only works on mobile devices',
-          ],
-          correctOptionIndex: 1,
-        );
-
-      // ── 5. DGA / Entropy ────────────────────────────────────────────────
       case 'dga_entropy':
-      case 'machine_generated_link':
         return const LessonModel(
-          title: 'Machine-Generated Domain',
-          type: 'DGA Entropy',
+          type: 'dga_entropy',
           emoji: '🎲',
-          summary:
-              'The domain name looks like random gibberish — a sign of automated malware.',
-          body:
-              'Malware uses Domain Generation Algorithms (DGA) to create hundreds '
-              'of throwaway domains every day. The high Shannon entropy of random '
-              'strings is statistically distinct from human-chosen brand names.',
-          example: 'x7z9q2mwpb.com',
-          realCounterpart: 'amazon.com',
-          tip:
-              'If you cannot pronounce the domain name, it is likely machine-generated. '
-              'Legitimate brands always use memorable names.',
-          quizQuestion:
-              'What is a common sign of a Domain Generation Algorithm (DGA) domain?',
+          title: 'Machine-Generated Domain',
+          summary: 'This domain looks like a random mash of keyboard characters.',
+          body: 'Botnets and scammers use Domain Generation Algorithms (DGAs) to rapidly create hundreds of random websites a day to avoid being blocked. Human-created domains usually contain readable words.',
+          example: 'https://x7z9q2mwpb.ru',
+          realCounterpart: 'https://amazon.com',
+          tip: 'If a domain name cannot be pronounced and looks like a random password, do not interact with it.',
+          quizQuestion: 'What does DGA stand for in cybersecurity?',
           quizOptions: [
-            'It has a .com extension',
-            'It contains a random, unpronounceable string of letters and numbers',
-            'It is very short',
+            'Domain Generation Algorithm',
+            'Data Gathering App',
+            'Digital Gateway Access'
           ],
-          correctOptionIndex: 1,
+          correctOptionIndex: 0,
         );
-
-      // ── 6. Redirect Depth ───────────────────────────────────────────────
-      case 'redirect_depth':
-      case 'redirect_chain_depth':
-      case 'deep_redirect_chain':
-        return const LessonModel(
-          title: 'Deep Redirect Chain',
-          type: 'Redirect Depth',
-          emoji: '🔀',
-          summary:
-              'The link bounces through three or more servers before reaching the destination.',
-          body:
-              'Attackers use long redirect chains to pass through legitimate-looking '
-              'intermediate servers (e.g. tracking platforms) before landing on the '
-              'malicious page. Each hop makes attribution harder and may bypass '
-              'single-hop URL scanners.',
-          example: 'track.ad.com → redir.io → phish.ru/steal',
-          realCounterpart: 'Direct link: brand.com/offer',
-          tip:
-              'QR codes from trusted sources (tickets, menus, receipts) should '
-              'resolve in one or two hops. Three or more is a red flag.',
-          quizQuestion:
-              'Why do attackers use long redirect chains?',
-          quizOptions: [
-            'To improve page load speed',
-            'To pass through trusted servers and evade single-hop scanners',
-            'To compress the final URL',
-          ],
-          correctOptionIndex: 1,
-        );
-
-      // ── 7. Path Keywords ────────────────────────────────────────────────
       case 'path_keywords':
-      case 'urgency_keywords':
         return const LessonModel(
-          title: 'Phishing Keywords in URL',
-          type: 'Urgency Keywords',
+          type: 'path_keywords',
           emoji: '🚨',
-          summary:
-              'The URL path contains words designed to create panic and urgency.',
-          body:
-              'Phishers embed action words like "verify", "secure", "login", '
-              'or "update" to make the link feel official and urgent. '
-              'Real services rarely include these words in their URL paths.',
-          example: 'auth.verify-account.com/login/secure',
-          realCounterpart: 'accounts.google.com',
-          tip:
-              'Official services rarely put "secure", "verify", or "update" '
-              'in the URL itself. Check the domain first — ignore the path.',
-          quizQuestion:
-              'Why do phishers use words like "Verify" or "Secure" in URL paths?',
+          title: 'Urgency Keywords',
+          summary: 'The link tries to trigger panic by using urgent security keywords.',
+          body: 'Attackers stuff the end of a URL with words like "login", "secure", "verify", or "update" to trick you into thinking it is an official security alert requiring immediate action.',
+          example: 'http://random-site.com/secure-login-verify-now',
+          realCounterpart: 'https://bank.com/login',
+          tip: 'Ignore the path (the end of the link). Only the main domain (the part right before the .com) tells you who actually owns the site.',
+          quizQuestion: 'Which part of a URL proves who actually owns the website?',
           quizOptions: [
-            'To improve search engine ranking',
-            'To create a false sense of legitimacy and urgency',
-            'To ensure the connection is encrypted',
+            'The path (e.g., /secure-login)',
+            'The core domain (e.g., google.com)',
+            'The protocol (e.g., https://)'
           ],
           correctOptionIndex: 1,
         );
-
-      // ── 8. Suspicious TLD ───────────────────────────────────────────────
+      case 'nested_short':
+        return const LessonModel(
+          type: 'nested_short',
+          emoji: '🪆',
+          title: 'Nested Shorteners',
+          summary: 'Multiple URL shorteners are hiding the final destination.',
+          body: 'While one URL shortener (like bit.ly) is normal, attackers often chain 2 or 3 together. This bypasses basic security scanners and makes it impossible for you to see where the link actually goes.',
+          example: 'bit.ly/3x -> tinyurl.com/a2 -> evil.com',
+          realCounterpart: 'bit.ly/official-promo -> brand.com',
+          tip: 'Be highly suspicious of QR codes that use generic link shorteners instead of official brand domains.',
+          quizQuestion: 'Why do attackers chain multiple URL shorteners together?',
+          quizOptions: [
+            'To make the QR code scan faster',
+            'To hide the true destination from security scanners',
+            'To save money on web hosting'
+          ],
+          correctOptionIndex: 1,
+        );
+      case 'html_evasion':
+        return const LessonModel(
+          type: 'html_evasion',
+          emoji: '🥷',
+          title: 'HTML Evasion',
+          summary: 'The page uses hidden code to redirect you to a malicious site.',
+          body: 'Instead of a standard network redirect, this link loads a seemingly safe webpage that contains a hidden HTML "meta-refresh" tag. This secretly yanks your browser to a phishing site after the security scanners leave.',
+          example: '<meta http-equiv="refresh" content="0; url=phishing.com">',
+          realCounterpart: 'Standard HTTP 301 Redirect',
+          tip: 'Quishing Guard automatically unrolls these, but if a webpage suddenly reloads into a login screen, close it immediately.',
+          quizQuestion: 'What HTML tag is often abused to create delayed, hidden redirects?',
+          quizOptions: [
+            'The <script> tag',
+            'The <meta refresh> tag',
+            'The <a> link tag'
+          ],
+          correctOptionIndex: 1,
+        );
+      case 'redirect_depth':
+        return const LessonModel(
+          type: 'redirect_depth',
+          emoji: '🔀',
+          title: 'Deep Redirect Chain',
+          summary: 'The link bounces you across multiple servers before landing.',
+          body: 'Scammers use complex redirect chains (3 or more network hops) to mask their infrastructure. They bounce traffic through compromised servers so authorities cannot track the source of the phishing campaign.',
+          example: 'Site A -> Site B -> Site C -> Phishing Page',
+          realCounterpart: 'Site A -> Official Page',
+          tip: 'A high number of redirects is a major red flag. Legitimate sites rarely redirect more than once.',
+          quizQuestion: 'Why is a deep redirect chain suspicious?',
+          quizOptions: [
+            'It indicates a broken web server',
+            'It is a technique used to launder traffic and hide the final destination',
+            'It means the website is heavily encrypted'
+          ],
+          correctOptionIndex: 1,
+        );
       case 'suspicious_tld':
         return const LessonModel(
-          title: 'High-Risk Domain Extension',
-          type: 'Suspicious TLD',
-          emoji: '🚩',
-          summary:
-              'The domain uses a top-level extension with a statistically elevated abuse rate.',
-          body:
-              'Certain TLDs (.tk, .ml, .xyz, .ru, .top) are heavily over-represented '
-              'in phishing databases because they offer free or very cheap registration '
-              'with minimal identity verification. Attackers register and discard '
-              'these domains rapidly.',
-          example: 'bank-update.tk',
-          realCounterpart: 'mybank.com',
-          tip:
-              'Be especially cautious with .tk, .ml, .xyz, .top, and .ru domains. '
-              'Legitimate brands rarely use these extensions.',
-          quizQuestion:
-              'Why are some TLDs more commonly seen in phishing attacks?',
+          type: 'suspicious_tld',
+          emoji: '🌍',
+          title: 'Suspicious Extension',
+          summary: 'The website ends in a high-risk Top-Level Domain (TLD).',
+          body: 'Because standard .com or .org domains cost money and require verification, scammers buy cheap or free domains ending in .tk, .xyz, .pw, or .cc to launch massive, disposable phishing campaigns.',
+          example: 'https://paypal-update.xyz',
+          realCounterpart: 'https://paypal.com',
+          tip: 'Always be wary of unusual domain extensions unless you specifically know and trust the business.',
+          quizQuestion: 'Why do scammers frequently use TLDs like .xyz or .tk?',
           quizOptions: [
-            'They load faster than .com domains',
-            'They are free or cheap with minimal identity verification',
-            'They are harder to block by firewalls',
+            'They are cheaper, disposable, and have less strict registration rules',
+            'They load faster on mobile networks',
+            'They are immune to antivirus software'
           ],
-          correctOptionIndex: 1,
+          correctOptionIndex: 0,
         );
-
-      // ── 9. Subdomain Depth ──────────────────────────────────────────────
       case 'subdomain_depth':
-      case 'subdomain_nesting':
         return const LessonModel(
-          title: 'Excessive Subdomain Nesting',
-          type: 'Subdomain Nesting',
-          emoji: '🏗️',
-          summary:
-              'Too many subdomain labels are used to push the real domain off-screen.',
-          body:
-              'Attackers prepend a trusted-looking brand name as a subdomain '
-              '(e.g. google.com.login.verify.malicious-site.com) so the '
-              'visible part of the URL looks familiar. The actual domain — '
-              'the part just before the final ".com" — is malicious.',
-          example: 'paypal.com.verify.login.evil-site.com',
-          realCounterpart: 'paypal.com',
-          tip:
-              'Always read the URL from right to left. '
-              'The real domain is the text immediately before ".com", ".net", etc.',
-          quizQuestion:
-              'In "paypal.com.verify.login.evil.com", what is the real host domain?',
+          type: 'subdomain_depth',
+          emoji: '🌳',
+          title: 'Subdomain Nesting',
+          summary: 'The URL uses excessive subdomains to mimic a trusted brand.',
+          body: 'Attackers create deeply nested subdomains to push their real (malicious) domain out of view. On a small mobile screen, you might only see "login.paypal.com" before the URL gets cut off, missing the real domain at the end.',
+          example: 'login.paypal.com.secure.update.hacker.com',
+          realCounterpart: 'login.paypal.com',
+          tip: 'Read URLs backwards. The true owner of the site is always the word directly to the left of the .com, .net, etc.',
+          quizQuestion: 'In the URL "update.amazon.com.evil-site.net", who owns the website?',
           quizOptions: [
-            'paypal.com',
-            'evil.com',
-            'login.evil.com',
+            'Amazon',
+            'Evil-site',
+            'Update'
           ],
           correctOptionIndex: 1,
         );
-
-      // ── 10. HTTPS Mismatch ──────────────────────────────────────────────
       case 'https_mismatch':
-      case 'no_https':
         return const LessonModel(
-          title: 'Unencrypted HTTP Link',
-          type: 'No HTTPS',
+          type: 'https_mismatch',
           emoji: '🔓',
-          summary:
-              'The link uses HTTP, meaning your data is sent in plain text.',
-          body:
-              'HTTPS encrypts the connection between your device and the server. '
-              'HTTP does not — anyone on the same network can read or modify '
-              'the data in transit. Any page that asks for credentials over '
-              'plain HTTP should be treated as hostile.',
-          example: 'http://bank-login.com/signin',
-          realCounterpart: 'https://onlinebanking.com/signin',
-          tip:
-              'Never enter a password or payment details on a page whose URL '
-              'starts with "http://" — only "https://" is safe.',
-          quizQuestion:
-              'What is the key difference between HTTP and HTTPS?',
+          title: 'Unencrypted Connection',
+          summary: 'The link forces an insecure HTTP connection.',
+          body: 'Modern websites use HTTPS to encrypt data between your phone and the server. This link forces standard HTTP, meaning anyone on your Wi-Fi network could intercept the passwords or data you type into the site.',
+          example: 'http://login.bank.com',
+          realCounterpart: 'https://login.bank.com',
+          tip: 'Never enter a password or credit card on a site that lacks the padlock icon or starts with http://.',
+          quizQuestion: 'What does the "S" in HTTPS stand for?',
           quizOptions: [
-            'HTTPS loads faster',
-            'HTTPS encrypts data in transit; HTTP sends it in plain text',
-            'HTTPS requires a paid certificate',
+            'Standard',
+            'System',
+            'Secure'
+          ],
+          correctOptionIndex: 2,
+        );
+      case 'reputation':
+        return const LessonModel(
+          type: 'reputation',
+          emoji: '📉',
+          title: 'Low Reputation Domain',
+          summary: 'This website is completely unknown to global security lists.',
+          body: 'While not inherently malicious, this domain does not appear in the Tranco Top 100k list of trusted, high-traffic websites. Scammers rely on newly registered, unknown domains that have zero established reputation.',
+          example: 'https://brand-new-site-123.com',
+          realCounterpart: 'https://established-brand.com',
+          tip: 'Treat newly registered or completely unknown domains with extreme caution, especially if they ask for credentials.',
+          quizQuestion: 'Why is a lack of domain reputation a risk factor?',
+          quizOptions: [
+            'It means the website has a virus',
+            'New, unknown domains are frequently used for disposable phishing attacks',
+            'It means the website is illegal'
           ],
           correctOptionIndex: 1,
         );
-
-      // ── Generic fallback ────────────────────────────────────────────────
       default:
         return const LessonModel(
+          type: 'generic',
+          emoji: '🛡',
           title: 'General Phishing Risk',
-          type: 'General Phishing Risk',
-          emoji: '⚠️',
-          summary:
-              'This link shows multiple indicators consistent with a Quishing attack.',
-          body:
-              'The combination of suspicious signals detected — such as unusual '
-              'extensions, redirect chains, or deceptive domains — is consistent '
-              'with QR-code phishing campaigns that attempt to harvest credentials '
-              'or install malware.',
-          example: 'login-update-service.net',
-          realCounterpart: 'official-website.com',
-          tip:
-              'When in doubt, type the official address manually into your browser '
-              'rather than following any link from a QR code.',
-          quizQuestion:
-              'What is the safest action when a QR code link is flagged?',
+          summary: 'This QR code exhibited suspicious characteristics.',
+          body: 'Attackers use physical QR codes to bypass digital email filters. They paste fraudulent codes over legitimate ones on parking meters, restaurant tables, and posters.',
+          example: 'A sticker pasted over a real parking meter QR',
+          realCounterpart: 'The original, printed QR code underneath',
+          tip: 'Always physically inspect public QR codes to ensure they are not stickers placed over the original code.',
+          quizQuestion: 'What is the most common physical Quishing attack method?',
           quizOptions: [
-            'Click it once to test it',
-            'Ignore the link and visit the official site directly',
-            'Forward it to a friend to verify',
+            'Hacking the printer that prints the codes',
+            'Placing malicious stickers over legitimate public QR codes',
+            'Using Bluetooth to alter the code'
           ],
           correctOptionIndex: 1,
         );
     }
   }
 }
-
