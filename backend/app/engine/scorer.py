@@ -303,18 +303,24 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         if c['triggered'] and c['name'] != 'reputation' and c['score'] > 0
     )
 
+    # 1. Apply base clamping based on reputation
     if is_trusted and not is_puny:
-        risk_score = min(raw_score, 10)
+        # FIX 1: Clamp to a minimum of 0 to prevent negative scores
+        risk_score = max(0, min(raw_score, 10))
     else:
         risk_score = max(0, min(100, raw_score))
         
-        if non_reputation_triggered >= 2:
-            risk_score = max(risk_score, 35)
-            
-        for c in checks:
-            if c['triggered'] and c['name'] in _CRITICAL_OVERRIDE_FLOORS:
-                risk_score = max(risk_score, _CRITICAL_OVERRIDE_FLOORS[c['name']])
+    # 2. Apply Synergy and Critical Floors (FIX 2: Moved OUTSIDE the else block)
+    # The act of evasion (nested shorteners, HTML redirects) is inherently 
+    # dangerous, even if the final payload is hosted on a "trusted" AWS/Google server.
+    if non_reputation_triggered >= 2:
+        risk_score = max(risk_score, 35)
+        
+    for c in checks:
+        if c['triggered'] and c['name'] in _CRITICAL_OVERRIDE_FLOORS:
+            risk_score = max(risk_score, _CRITICAL_OVERRIDE_FLOORS[c['name']])
 
+    # 3. Apply Hard Overrides
     if blocklisted: risk_score = 100
     if allowlisted: risk_score = 0
 
@@ -325,7 +331,6 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     triggered_checks = [c for c in checks if c["triggered"] and c["score"] > 0]
     top_threat = max(triggered_checks, key=lambda c: c["score"])["label"] if triggered_checks else "None"
 
-    # ✅ THE FIX: Ensure all required keys exist for analyse.py & the Flutter UI
     return {
         "url":                url,
         "resolved_url":       target_url,
@@ -337,6 +342,5 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "is_allowlisted":     allowlisted,
         "is_blocklisted":     blocklisted,
         "checks":             checks,
-        "overall_assessment": "Trusted high-traffic domain." if is_trusted else f"Analysis suggests {final_label.upper()}.",
+        "overall_assessment": "Trusted high-traffic domain." if is_trusted and risk_score < 30 else f"Analysis suggests {final_label.upper()}.",
     }
-
