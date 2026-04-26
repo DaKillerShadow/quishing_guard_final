@@ -54,13 +54,19 @@ _BAD_TLDS = {
 }
 
 _PHISHING_KEYWORDS = frozenset({
+    # Action keywords
     "login", "signin", "verify", "validation", "secure", "update", "reactivate",
     "office365", "outlook", "onedrive", "wp-admin", "identity",
     "vodafone", "fawry", "cib", "bank", "misr", "instapay", "win-prize", 
     "uaepass", "tamm", "emirates", "dewa", "adcb", "etisalat", "du-mobile",
     "nafath", "absher", "tawakkalna", "alrajhi", "stc-pay", "saudi-post",
-    "aramex", "dhl", "tracking", "parcel", "delivery","proxy", "poxy", "proxie", "vpn", "tunnel", "socks", 
-    "anon", "bypass", "relay", "mirror", "tor", "darkweb", "hide"
+    "aramex", "dhl", "tracking", "parcel", "delivery","proxy", "poxy", 
+    "proxie", "vpn", "tunnel", "socks", "anon", "bypass", "relay", "mirror", 
+    "tor", "darkweb", "hide",
+    
+    # NEW: High-value targets and common phishing path artifacts
+    "paypal", "apple", "netflix", "amazon", "microsoft", "google", "meta",
+    "cgi-bin", "webscr", "cmd", "billing", "invoice", "refund", "wallet", "account"
 })
 
 KNOWN_SHORTENERS = frozenset({
@@ -195,7 +201,10 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     })
 
     # 5. Phishing Keywords
-    found_kws = [kw for kw in _PHISHING_KEYWORDS if kw in decoded_url]
+    # FIX: Only search the path and query string so we don't penalize legitimate core domains!
+    path_and_query = (parsed.path + "?" + parsed.query).lower()
+    found_kws = [kw for kw in _PHISHING_KEYWORDS if kw in path_and_query]
+    
     checks.append({
         "name":      "path_keywords",
         "label":     "PATH KEYWORDS",
