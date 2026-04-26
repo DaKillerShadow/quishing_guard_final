@@ -32,7 +32,7 @@ class _State extends ConsumerState<SafePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 👇 ADD THIS LINE: Check if the reputation pillar was triggered (meaning it's an unknown domain)
+    // 👇 Check if the reputation pillar was triggered (meaning it's an unknown domain)
     final isUnknownDomain = r.checks.any((c) => c.name == 'reputation' && c.triggered);
 
     return Scaffold(
@@ -109,7 +109,7 @@ class _State extends ConsumerState<SafePreviewScreen> {
               ),
             ),
 
-            // 👇 ADD THIS ENTIRE BLOCK: Zero-Day Warning Banner
+            // ── Zero-Day Warning Banner ───────────────────────────
             if (isUnknownDomain)
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -163,9 +163,8 @@ class _State extends ConsumerState<SafePreviewScreen> {
                   ],
                 ),
               ),
-            // ☝️ END OF ZERO-DAY WARNING
 
-            // ── Physical QR Tampering Warning ─────────────────────────
+            // ── Physical QR Tampering Warning ─────────────────────
             Container(
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               padding: const EdgeInsets.all(14),
@@ -210,7 +209,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ],
               ),
             ),
-            // ☝️ END OF PHYSICAL WARNING
 
             // ── Redirect chain ────────────────────────────────────
             if (r.redirectChain.length > 1)
@@ -507,3 +505,4 @@ class _Card extends StatelessWidget {
     ]),
   );
 }
+
