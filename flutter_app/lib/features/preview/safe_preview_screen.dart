@@ -210,6 +210,63 @@ class _State extends ConsumerState<SafePreviewScreen> {
               ),
             ),
 
+            // ── AI Threat Analysis ────────────────────────────────
+            if (r.aiAnalysis.isNotEmpty && !r.aiAnalysis.contains('disabled'))
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                decoration: BoxDecoration(
+                  color: AppColors.panel,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.arc.withValues(alpha: 0.4)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.arc.withValues(alpha: 0.05),
+                      blurRadius: 12,
+                      spreadRadius: 2,
+                    )
+                  ]
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      decoration: const BoxDecoration(
+                        border: Border(bottom: BorderSide(color: AppColors.rim)),
+                      ),
+                      child: Row(children: [
+                        const Text('🤖', style: TextStyle(fontSize: 14)),
+                        const SizedBox(width: 8),
+                        const Expanded(child: Text('AI Threat Analysis', style: TextStyle(
+                          fontFamily: 'monospace', fontSize: 12,
+                          fontWeight: FontWeight.w700, color: AppColors.arc,
+                        ))),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.arc.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('GEMINI 1.5', style: TextStyle(fontSize: 8, color: AppColors.arc, fontWeight: FontWeight.w800)),
+                        )
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Text(
+                        r.aiAnalysis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textColor,
+                          height: 1.5,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // ── Redirect chain ────────────────────────────────────
             if (r.redirectChain.length > 1)
               _Card(
