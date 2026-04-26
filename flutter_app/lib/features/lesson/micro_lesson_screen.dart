@@ -1,6 +1,7 @@
 // lib/features/lesson/micro_lesson_screen.dart
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/models/lesson_model.dart';
 import '../../core/models/scan_result.dart';
@@ -16,6 +17,21 @@ class MicroLessonScreen extends StatefulWidget {
 
 class _State extends State<MicroLessonScreen> {
   bool _bookmarked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBookmark();
+  }
+
+  Future<void> _loadBookmark() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _bookmarked = prefs.getBool('bookmark_${_lesson.type}') ?? false;
+      });
+    }
+  }
 
   // Ensures the lesson always finds a relevant threat to explain
   LessonModel get _lesson {
@@ -123,13 +139,20 @@ class _State extends State<MicroLessonScreen> {
                   : Icons.bookmark_border_rounded,
               color: _bookmarked ? AppColors.arc : AppColors.muted,
             ),
-            onPressed: () {
-              setState(() => _bookmarked = !_bookmarked);
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(
-                    _bookmarked ? 'Lesson bookmarked' : 'Bookmark removed'),
-                duration: const Duration(seconds: 2),
-              ));
+            onPressed: () async {
+              // ✅ FIX 2: Actually save to SharedPreferences
+              final prefs = await SharedPreferences.getInstance();
+              final newVal = !_bookmarked;
+              await prefs.setBool('bookmark_${l.type}', newVal);
+              
+              setState(() => _bookmarked = newVal);
+              
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(newVal ? 'Lesson bookmarked' : 'Bookmark removed'),
+                  duration: const Duration(seconds: 2),
+                ));
+              }
             },
           ),
         ],
@@ -442,3 +465,4 @@ class _Section extends StatelessWidget {
         ]),
       );
 }
+
