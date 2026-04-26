@@ -33,6 +33,7 @@ Risk labels:
 """
 from __future__ import annotations
 import re
+import os
 import requests
 import ipaddress
 import tldextract
@@ -82,7 +83,31 @@ _CRITICAL_OVERRIDE_FLOORS = {
     "html_evasion":  60,
 }
 
-# ── 2. The Unroller (Redirect & Evasion Logic) ───────────────────────────────
+# ── 2. AI Threat Analysis Agent ──────────────────────────────────────────────
+def get_ai_insight(raw_url: str, resolved_url: str) -> str:
+    """Asks Google Gemini to evaluate the URL contextually."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return "AI analysis disabled. (GEMINI_API_KEY not set in environment)."
+        
+    prompt = (
+        f"You are a cybersecurity expert analyzing a scanned QR code URL. "
+        f"Original URL: '{raw_url}'. Final Destination: '{resolved_url}'. "
+        f"In maximum 2 short sentences, explain if this looks like a phishing/quishing risk and why."
+    )
+    
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    try:
+        # We use a strict 4-second timeout so the AI never slows down your app
+        resp = requests.post(endpoint, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=4)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return "AI analysis unavailable at this time."
+    except Exception:
+        return "AI analysis timed out."
+
+# ── 3. The Unroller (Redirect & Evasion Logic) ───────────────────────────────
 def trace_redirects(start_url: str) -> dict:
     """Unmasks the final destination and detects hidden HTML redirects."""
     # 1. Resolve network-level hops (301/302)
@@ -111,7 +136,7 @@ def trace_redirects(start_url: str) -> dict:
 
     return tracker_results
 
-# ── 3. The 11-Pillar Scoring Engine ──────────────────────────────────────────
+# ── 4. The 11-Pillar Scoring Engine ──────────────────────────────────────────
 
 # FIX C-1: Added trace_data parameter so the route can pass pre-computed
 #           resolution data, eliminating the duplicate resolve() call that
@@ -331,6 +356,9 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     triggered_checks = [c for c in checks if c["triggered"] and c["score"] > 0]
     top_threat = max(triggered_checks, key=lambda c: c["score"])["label"] if triggered_checks else "None"
 
+    # Trigger the AI Agent
+    ai_text = get_ai_insight(url, target_url)
+
     return {
         "url":                url,
         "resolved_url":       target_url,
@@ -343,4 +371,6 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "is_blocklisted":     blocklisted,
         "checks":             checks,
         "overall_assessment": "Trusted high-traffic domain." if is_trusted and risk_score < 30 else f"Analysis suggests {final_label.upper()}.",
+        "ai_analysis":        ai_text,  # ✅ ADDED THIS LINE
     }
+
