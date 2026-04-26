@@ -304,8 +304,19 @@ class _State extends ConsumerState<SafePreviewScreen> {
     }
   }
 
-  void _share() => Share.share(
-    '🛡 Quishing Guard\nURL: ${r.resolvedUrl}\nRisk: ${r.riskLabel.toUpperCase()} (${r.riskScore}/100)');
+  void _share() {
+    // Extract the names of only the pillars that fired
+    final triggeredChecks = widget.result.checks
+        .where((c) => c.status != 'SAFE')
+        .map((c) => c.label)
+        .join(' · ');
+        
+    final checksText = triggeredChecks.isNotEmpty ? '\n⚠ Triggered: $triggeredChecks' : '';
+    
+    Share.share(
+        '🛡 Quishing Guard\nURL: ${widget.result.url}\nRisk: ${widget.result.riskLabel.toUpperCase()} (${widget.result.riskScore}/100)$checksText'
+    );
+  }
 }
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
