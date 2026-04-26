@@ -86,7 +86,7 @@ _CRITICAL_OVERRIDE_FLOORS = {
 # ── 2. AI Threat Analysis Agent ──────────────────────────────────────────────
 def get_ai_insight(raw_url: str, resolved_url: str) -> str:
     """Asks Google Gemini to evaluate the URL contextually."""
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("AIzaSyBhXi4cJlbH705v0FqzFMD7mHQDwtr3d7s")
     if not api_key:
         return "AI analysis disabled. (GEMINI_API_KEY not set in environment)."
         
