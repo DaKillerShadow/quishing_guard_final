@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
@@ -96,7 +98,7 @@ class ScannerController extends StateNotifier<ScannerState> {
   Future<void> _analyse(String rawUrl) async {
     final lower = rawUrl.toLowerCase();
     
-    // 1. Reject specific non-web schemas to prevent API clutter
+    // 1. Reject specific non-web schemas
     if (lower.startsWith('wifi:') || 
         lower.startsWith('begin:vcard') || 
         lower.startsWith('tel:') || 
@@ -110,21 +112,43 @@ class ScannerController extends StateNotifier<ScannerState> {
       return;
     }
 
-    // 2. Normalise raw domains (e.g. xn--pypl-0ra0a.com -> https://xn--pypl-0ra0a.com)
+    // 2. Normalise raw domains
     final url = (lower.startsWith('http://') || lower.startsWith('https://'))
         ? rawUrl
         : 'https://$rawUrl';
+
+    // ✅ FIX 3: Check connectivity before hitting the API
+    final connectivity = await Connectivity().checkConnectivity();
+    if (connectivity.every((r) => r == ConnectivityResult.none)) {
+      state = state.copyWith(
+        state: ScanState.error,
+        errorMsg: 'No internet connection. Please check your network and try again.',
+        statusMsg: 'Offline — tap to retry',
+      );
+      return;
+    }
 
     state = state.copyWith(
       state: ScanState.analysing,
       statusMsg: '✓ QR detected — analysing…',
     );
+    
     try {
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
       await _ref.read(historyProvider.notifier).add(result);
 
       state = state.copyWith(state: ScanState.done);
-      _ref.read(_navigateProvider)?.call('/preview', extra: result);
+      
+      // ✅ FIX 1: Read autoLesson preference and route dynamically
+      final prefs = await SharedPreferences.getInstance();
+      final autoLesson = prefs.getBool('autoLesson') ?? false;
+
+      if (autoLesson && result.riskScore >= 60) {
+        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
+      } else {
+        _ref.read(_navigateProvider)?.call('/preview', extra: result);
+      }
+
     } on ApiException catch (e) {
       state = state.copyWith(
         state: ScanState.error,
@@ -532,4 +556,3 @@ class _CtrlBtn extends StatelessWidget {
         ),
       );
 }
-
