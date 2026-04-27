@@ -67,14 +67,6 @@ class ScannerController extends StateNotifier<ScannerState> {
   DateTime? _lastAt;
   static const _debounce = Duration(seconds: 3);
 
-  static const _demoUrls = [
-    'https://xn--pple-43d.com/account/login',
-    'https://www.google.com/maps',
-    'http://x7z9q2mwpb.ru/verify-account',
-    'http://185.220.101.52/secure/login',
-  ];
-  int _demoIdx = 0;
-
   void setTorch(bool isOn) {
     state = state.copyWith(torchOn: isOn);
   }
@@ -93,6 +85,11 @@ class ScannerController extends StateNotifier<ScannerState> {
 
     HapticFeedback.mediumImpact();
     _analyse(value);
+  }
+
+  // Safely passes the demo URL to the analyzer
+  Future<void> analyzeDemo(String url) async {
+    await _analyse(url);
   }
 
   Future<void> _analyse(String rawUrl) async {
@@ -191,12 +188,6 @@ class ScannerController extends StateNotifier<ScannerState> {
     }
   }
 
-  Future<void> runDemo() async {
-    final url = _demoUrls[_demoIdx % _demoUrls.length];
-    _demoIdx++;
-    await _analyse(url);
-  }
-
   void reset() {
     _lastCode = null;
     state = const ScannerState();
@@ -268,6 +259,66 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     super.dispose();
   }
 
+  // ── Merged Demo Menu Function ───────────────────────────────────────────────
+  void _showDemoMenu(BuildContext context) {
+    final demos = [
+      {
+        'title': '🍎 1. Apple Punycode (False UI)',
+        'url': 'https://xn--pple-43d.com/login',
+        'subtitle': 'Tests homograph attack detection'
+      },
+      {
+        'title': '🔀 2. Nested Shorteners -> IP',
+        'url': 'https://bit.ly/4b5zW3a',
+        'subtitle': 'Tests unrolling & IP literal detection'
+      },
+      {
+        'title': '🚨 3. Zero-Day Infrastructure',
+        'url': 'https://broccar.tryorder.net/menu',
+        'subtitle': 'Tests global reputation banner'
+      },
+      {
+        'title': '✅ 4. Safe URL',
+        'url': 'https://docs.google.com/',
+        'subtitle': 'Tests false-positive baseline'
+      },
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1B26),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  '🧪 Presentation Demo Mode',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              ...demos.map((demo) => ListTile(
+                    title: Text(demo['title']!, style: const TextStyle(color: Colors.white)),
+                    subtitle: Text(demo['subtitle']!, style: const TextStyle(color: Colors.grey)),
+                    trailing: const Icon(Icons.arrow_forward_ios, color: Colors.cyan, size: 16),
+                    onTap: () {
+                      Navigator.pop(context);
+                      // Properly routes the demo URL through the scanner's API logic
+                      ref.read(scannerStateProvider.notifier).analyzeDemo(demo['url']!);
+                    },
+                  )),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerStateProvider);
@@ -319,6 +370,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                               color: AppColors.arc),
                         ),
                         const Spacer(),
+                      if (!kIsWeb) ...[
                         _IconBtn(
                           icon: Icons.flash_on_rounded,
                           active: scanState.torchOn,
@@ -328,6 +380,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           },
                         ),
                         const SizedBox(width: 8),
+                        ],
                         _IconBtn(
                             icon: Icons.settings_rounded,
                             onTap: () => context.push('/settings')),
@@ -419,8 +472,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           Expanded(
                             child: _CtrlBtn(
                               icon: '▶', 
-                              label: 'Demo', 
-                              onTap: ref.read(scannerStateProvider.notifier).runDemo, 
+                              label: 'Demos', 
+                              onTap: () => _showDemoMenu(context), // Linked to the new Demo Menu
                               highlight: true,
                             ),
                           ),
