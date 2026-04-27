@@ -89,7 +89,7 @@ def get_ai_insight(raw_url: str, resolved_url: str) -> str:
         f"Do not use any markdown formatting, asterisks, or bold text. Provide plain text only."
     )
     
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
     try:
         # ✅ FIX: 7-second timeout for better UX
         resp = requests.post(endpoint, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=7)
