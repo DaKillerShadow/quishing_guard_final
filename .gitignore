@@ -12,4 +12,4 @@ env/
 
 # IDEs
 .vscode/
-.idea/
+.idea/backend/.env 

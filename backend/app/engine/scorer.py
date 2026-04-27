@@ -143,12 +143,12 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     full_host = f"{ext.subdomain}.{ext.domain}.{ext.suffix}".strip(".")
     parsed = urlparse(decoded_url if "://" in decoded_url else "https://" + decoded_url)
 
-    # 1. Global Reputation
+   # 1. Global Reputation (The Gatekeeper)
     is_trusted = is_highly_trusted(domain) or is_highly_trusted(full_host)
     checks.append({
         "name":      "reputation",
         "label":     "GLOBAL REPUTATION",
-        "status":    "SAFE",
+        "status":    "SAFE" if is_trusted else "UNSAFE",   # ← FIX: Accurately flags unknown domains
         "message":   "Domain recognised in the global Tranco Top 100k reputation list. ✓" if is_trusted
                      else "Domain not found in global reputation database.",
         "metric":    "Tranco Top 100k" if is_trusted else "",

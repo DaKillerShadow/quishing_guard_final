@@ -97,7 +97,7 @@ def analyse():
     #           trace_redirects() call — eliminates the duplicate resolve() that
     #           previously fired on every scan, halving network cost and SSRF surface.
     result_data = analyse_url(
-        url=resolved_url, 
+        url=raw_url, 
         blocklisted=blocklisted, 
         allowlisted=allowlisted,
         trace_data=trace_data_for_scorer,  # FIX C-1

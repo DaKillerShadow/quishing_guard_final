@@ -4,8 +4,6 @@ description: >
   Scans QR codes, resolves URLs through a secure Flask backend,
   scores risk using heuristic + Shannon Entropy analysis, and
   delivers micro-learning moments before any navigation occurs.
-# FIX: was 1.0.0+1 while app_constants.dart said '1.0.0' and
-# settings_screen.dart hardcoded '2.0.0'. Aligned to 2.0.0+1.
 version: 2.0.0+1
 publish_to: none
 
@@ -18,43 +16,41 @@ dependencies:
     sdk: flutter
 
   # ── QR Scanning ──────────────────────────────────────────────────────
-  mobile_scanner: ^5.2.3
-  image_picker: ^1.1.2
+  mobile_scanner: 5.2.3
+  image_picker: 1.1.2
 
   # ── State Management ─────────────────────────────────────────────────
-  flutter_riverpod: ^2.5.1
+  flutter_riverpod: 2.6.1
 
   # ── Navigation ───────────────────────────────────────────────────────
-  go_router: ^14.2.7
+  go_router: 14.8.1
 
   # ── Networking ───────────────────────────────────────────────────────
-  dio: ^5.5.0+1
-  connectivity_plus: ^6.0.3
+  dio: 5.5.0
+  connectivity_plus: 6.1.5
 
   # ── Local Storage ────────────────────────────────────────────────────
-  shared_preferences: ^2.3.2
+  shared_preferences: 2.3.2
 
   # ── UI ────────────────────────────────────────────────────────────────
-  url_launcher: ^6.3.0
-  share_plus: ^9.0.0
-  permission_handler: ^11.3.1
+  url_launcher: 6.3.0
+  share_plus: 9.0.0
+  permission_handler: 11.4.0
 
   # ── Utilities ─────────────────────────────────────────────────────────
-  uuid: ^4.4.2
-  intl: ^0.19.0
+  uuid: 4.4.2
+  intl: 0.19.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
-  flutter_launcher_icons: "^0.13.1"
+  flutter_lints: 4.0.0
+  flutter_launcher_icons: 0.13.1
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
-    # NOTE: assets/icon/icon.png must physically exist before running
-    # 'dart run flutter_launcher_icons' or the build will fail.
     - assets/icon/
 
 flutter_launcher_icons:
