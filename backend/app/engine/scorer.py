@@ -104,7 +104,7 @@ def get_ai_insight(raw_url: str, resolved_url: str) -> str:
         ]
     }
 
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key={api_key}"
 
     # 3. Execution Loop (Handles 503 Service Unavailable)
     for attempt in range(3): 
