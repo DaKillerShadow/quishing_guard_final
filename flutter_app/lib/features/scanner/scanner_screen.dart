@@ -269,7 +269,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       },
       {
         'title': '🔀 2. Nested Shorteners -> IP',
-        'url': 'https://bit.ly/4b5zW3a',
+        'url': 'https://tinyurl.com/ydshc39r', // fix59ا
         'subtitle': 'Tests unrolling & IP literal detection'
       },
       {
@@ -308,7 +308,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                     trailing: const Icon(Icons.arrow_forward_ios, color: Colors.cyan, size: 16),
                     onTap: () {
                       Navigator.pop(context);
-                      // Properly routes the demo URL through the scanner's API logic
+                      // التعديل النهائي هنا: ربط الديمو بدالة الفحص الرسمية في الـ Controller
                       ref.read(scannerStateProvider.notifier).analyzeDemo(demo['url']!);
                     },
                   )),
@@ -609,3 +609,4 @@ class _CtrlBtn extends StatelessWidget {
         ),
       );
 }
+
