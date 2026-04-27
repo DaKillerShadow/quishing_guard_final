@@ -72,10 +72,9 @@ class AboutScreen extends StatelessWidget {
                   const Text(
                     'Quishing Guard is a proactive Zero-Trust security system designed to '
                     'neutralize QR code phishing (quishing) before it reaches the browser. '
-                    'Utilizing a secure Python-based resolution engine, it unrolls hidden '
-                    'redirect chains and applies 8 multi-dimensional heuristic checks — '
-                    'leveraging Normalized Shannon Entropy and IDN Homograph detection — '
-                    'to provide a real-time risk assessment of the final destination.',
+                    'Utilizing a hybrid-detection architecture, it combines a blazing-fast, '
+                    '11-pillar deterministic heuristic engine with contextual Large Language '
+                    'Model (LLM) analysis to provide real-time, military-grade risk assessments.',
                     style: TextStyle(
                       fontFamily: 'monospace', fontSize: 12,
                       color: AppColors.muted, height: 1.6,
@@ -100,15 +99,15 @@ class AboutScreen extends StatelessWidget {
             _section('TECHNICAL STACK'),
             _infoCard([
               _infoRow('Frontend',  'Flutter 3.22 · Dart 3.3 · Riverpod'),
-              _infoRow('Backend',   'Python 3.12 · Flask 3.0 · JWT Auth'),
-              _infoRow('CV Engine', 'OpenCV · WeChatQRCode Decoder'),
+              _infoRow('Backend',   'Python 3.12 · Flask 3.0 · BeautifulSoup'),
+              _infoRow('AI Engine', 'Google Gemini 1.5 Flash (LLM)'),
+              _infoRow('Scanner',   'Google ML Kit (mobile_scanner)'),
               _infoRow('Theory',    'Information Theory · Shannon Entropy'),
-              _infoRow('Database',  'PostgreSQL · SQLAlchemy ORM'),
             ]),
             const SizedBox(height: 16),
 
             // ── Heuristic Checks ──────────────────────────────
-            _section('HEURISTIC ENGINE — 8 CORE INDICATORS'),
+            _section('HYBRID ENGINE — 11 PILLARS & AI'),
             Container(
               decoration: BoxDecoration(
                 color: AppColors.panel,
@@ -116,14 +115,17 @@ class AboutScreen extends StatelessWidget {
                 border: Border.all(color: AppColors.rim),
               ),
               child: Column(children: [
-                _checkRow('Punycode / Homograph', '30 pts', 'Visual brand impersonation detection'),
-                _checkRow('IP Literal Host',      '25 pts', 'Raw IP detection (SSRF / evasion)'),
-                _checkRow('DGA Entropy Ratio',    '20 pts', 'Normalized H/H_max > 0.85 (DGA)'),
-                _checkRow('Redirect Depth',       '20 pts', '3+ hidden hop chain analysis'),
-                _checkRow('Path Keywords',        '15 pts', 'Regional phishing lure detection'),
-                _checkRow('Suspicious TLD',       '8 pts', 'High-abuse registry classification'),
-                _checkRow('Subdomain Depth',      '8 pts', 'Excessive label nesting (> 3)'),
-                _checkRow('HTTPS Enforcement',    '7 pts', 'Encryption status & protocol safety'),
+                _checkRow('Global Reputation', 'Zero-Day', 'Tranco Top 100k cross-reference'),
+                _checkRow('HTML Evasion',      '25 pts', 'Client-side <meta refresh> scraping'),
+                _checkRow('Nested Shorteners', '20 pts', 'Unrolls bit.ly/TinyURL chains'),
+                _checkRow('Punycode / IDN',    '30 pts', 'Visual brand impersonation detection'),
+                _checkRow('IP Literal Host',   '25 pts', 'Raw IP detection (SSRF / evasion)'),
+                _checkRow('DGA Entropy Ratio', '20 pts', 'Normalized H/H_max > 0.85 (DGA)'),
+                _checkRow('Redirect Depth',    '20 pts', '3+ hidden hop chain analysis'),
+                _checkRow('Path Keywords',     '15 pts', 'Regional phishing lure detection'),
+                _checkRow('Suspicious TLD',    '8 pts', 'High-abuse registry classification'),
+                _checkRow('Subdomain Depth',   '8 pts', 'Excessive label nesting (> 3)'),
+                _checkRow('HTTPS Enforcement', '7 pts', 'Encryption status & protocol safety'),
               ]),
             ),
             const SizedBox(height: 32),
