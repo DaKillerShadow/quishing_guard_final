@@ -156,7 +156,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "message":   "Domain recognised in the global Tranco Top 100k reputation list. ✓" if is_trusted
                      else "Domain not found in global reputation database.",
         "metric":    "Tranco Top 100k" if is_trusted else "",
-        "score":     -50 if is_trusted else 0,
+        "score":     -50 if is_trusted else 30,  # ← FIX: Score slash for trusted domains, small penalty for unknowns
         "triggered": not is_trusted,
     })
 
