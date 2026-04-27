@@ -23,6 +23,7 @@ unrolls nested shorteners, and scrapes for HTML evasion.
 └─────────────────────┴──────┴──────────────────────────────────────────┘
 """
 from __future__ import annotations
+import time
 import re
 import os
 import requests
@@ -76,33 +77,61 @@ _CRITICAL_OVERRIDE_FLOORS = {
 
 # ── 2. AI Threat Analysis Agent ──────────────────────────────────────────────
 def get_ai_insight(raw_url: str, resolved_url: str) -> str:
-    """Asks Google Gemini to evaluate the URL contextually."""
-    # ✅ FIX: Look up the key securely from the server environment
+    """
+    Evaluates URL contextually using Gemini 1.5 Flash.
+    Includes a retry loop for 503 errors and safety overrides for phishing analysis.
+    """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return "AI analysis disabled. (GEMINI_API_KEY not set in environment)."
-        
+        return "AI analysis disabled. (GEMINI_API_KEY not set)."
+
+    # 1. Prepare the Cybersecurity Prompt
     prompt = (
         f"You are a cybersecurity expert analyzing a scanned QR code URL. "
         f"Original URL: '{raw_url}'. Final Destination: '{resolved_url}'. "
         f"In maximum 2 short sentences, explain if this looks like a phishing/quishing risk and why. "
-        f"Do not use any markdown formatting, asterisks, or bold text. Provide plain text only."
+        f"Do not use markdown, asterisks, or bold text. Plain text only."
     )
-    
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
-    try:
-        # ✅ FIX: 7-second timeout for better UX
-        resp = requests.post(endpoint, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=7)
-        if resp.status_code == 200:
-            data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    # 2. Configure Payload with Safety Overrides (to prevent censorship of phishing links)
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
+        ]
+    }
+
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+
+    # 3. Execution Loop (Handles 503 Service Unavailable)
+    for attempt in range(3): 
+        try:
+            resp = requests.post(endpoint, json=payload, timeout=8)
             
-        # 👇 ADDED THIS LINE TO REVEAL THE HIDDEN GOOGLE ERROR 👇
-        print(f"\n🚨 GOOGLE API ERROR: {resp.text}\n")
-        
-        return "AI analysis unavailable at this time."
-    except Exception:
-        return "AI analysis timed out."
+            # Case A: Success
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
+            # Case B: Rate Limit or Server Busy (Retryable)
+            if resp.status_code in [429, 503]:
+                wait_time = 1.5 * (attempt + 1)
+                print(f"🔄 AI Engine busy ({resp.status_code}). Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            
+            # Case C: Critical Errors (Leaked Key 403, etc.) - Stop trying
+            print(f"🚨 AI CRITICAL ERROR: {resp.status_code} - {resp.text}")
+            break 
+            
+        except (requests.exceptions.RequestException, Exception) as e:
+            print(f"⚠️ Network error on AI call (Attempt {attempt+1}): {str(e)}")
+            time.sleep(1)
+
+    return "AI analysis unavailable at this time."
 
 # ── 3. The Unroller (Redirect & Evasion Logic) ───────────────────────────────
 def trace_redirects(start_url: str) -> dict:
