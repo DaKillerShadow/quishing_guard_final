@@ -89,13 +89,17 @@ def get_ai_insight(raw_url: str, resolved_url: str) -> str:
         f"Do not use any markdown formatting, asterisks, or bold text. Provide plain text only."
     )
     
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
     try:
         # ✅ FIX: 7-second timeout for better UX
         resp = requests.post(endpoint, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=7)
         if resp.status_code == 200:
             data = resp.json()
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
+        # 👇 ADDED THIS LINE TO REVEAL THE HIDDEN GOOGLE ERROR 👇
+        print(f"\n🚨 GOOGLE API ERROR: {resp.text}\n")
+        
         return "AI analysis unavailable at this time."
     except Exception:
         return "AI analysis timed out."
