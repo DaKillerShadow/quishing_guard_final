@@ -1,3 +1,4 @@
+
 // lib/features/preview/safe_preview_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -211,7 +212,11 @@ class _State extends ConsumerState<SafePreviewScreen> {
             ),
 
             // ── AI Threat Analysis ────────────────────────────────
-            if (r.aiAnalysis.isNotEmpty && !r.aiAnalysis.contains('disabled'))
+            if (r.aiAnalysis.isNotEmpty && 
+                !r.aiAnalysis.contains('disabled') && 
+                !r.aiAnalysis.contains('unavailable') && 
+                !r.aiAnalysis.contains('timed out') && 
+                !r.aiAnalysis.contains('provided'))
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 decoration: BoxDecoration(
@@ -562,4 +567,3 @@ class _Card extends StatelessWidget {
     ]),
   );
 }
-
