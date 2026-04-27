@@ -1,7 +1,7 @@
 # --- Core Framework ---
 Flask>=3.0.0
 Flask-Cors>=4.0.0
-
+python-dotenv>=1.0.1      
 # --- Database & Caching ---
 Flask-SQLAlchemy>=3.1.0
 psycopg2-binary>=2.9      # Required for Render PostgreSQL
@@ -14,8 +14,11 @@ Flask-Limiter>=3.7.0
 # --- Heuristic Engine & Network ---
 requests>=2.31.0          # CRITICAL: For resolver.py and scorer.py
 idna>=3.6
-tldextract>=5.1.0         # CRITICAL: For accurate eTLD+1 parsing
+tldextract>=5.1.0          # CRITICAL: For accurate eTLD+1 parsing
 beautifulsoup4>=4.12.3    # For HTML meta-refresh evasion detection
+
+# --- AI & Generative Logic ---
+google-generativeai>=0.4.0 <-- ADD THIS (For Gemini support)
 
 # --- Image Processing (QR Scanning) ---
 opencv-python-headless>=4.9.0
