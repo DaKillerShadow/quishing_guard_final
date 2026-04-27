@@ -21,15 +21,6 @@ unrolls nested shorteners, and scrapes for HTML evasion.
 ├─────────────────────┼──────┼──────────────────────────────────────────┤
 │ reputation         │ -50  │ Tranco Top 100k immunity (Score slash)   │
 └─────────────────────┴──────┴──────────────────────────────────────────┘
-
-* Maximum raw score: 203 → capped at 100
-* Critical Floors: Triggering specific high-risk pillars (like IP Literal 
-  or Nested Shorteners) instantly elevates the score to 65+ (Danger).
-
-Risk labels:
-  0–29  safe    — green,  proceed with caution
- 30–59  warning — amber,  micro-lesson triggered, confirmation required
- 60–100 danger  — red,    blocked by default, explicit override needed
 """
 from __future__ import annotations
 import re
@@ -86,20 +77,22 @@ _CRITICAL_OVERRIDE_FLOORS = {
 # ── 2. AI Threat Analysis Agent ──────────────────────────────────────────────
 def get_ai_insight(raw_url: str, resolved_url: str) -> str:
     """Asks Google Gemini to evaluate the URL contextually."""
-    api_key = os.environ.get("AIzaSyBhXi4cJlbH705v0FqzFMD7mHQDwtr3d7s")
+    # ✅ FIX: Look up the key securely from the server environment
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return "AI analysis disabled. (GEMINI_API_KEY not set in environment)."
         
     prompt = (
         f"You are a cybersecurity expert analyzing a scanned QR code URL. "
         f"Original URL: '{raw_url}'. Final Destination: '{resolved_url}'. "
-        f"In maximum 2 short sentences, explain if this looks like a phishing/quishing risk and why."
+        f"In maximum 2 short sentences, explain if this looks like a phishing/quishing risk and why. "
+        f"Do not use any markdown formatting, asterisks, or bold text. Provide plain text only."
     )
     
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     try:
-        # We use a strict 4-second timeout so the AI never slows down your app
-        resp = requests.post(endpoint, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=4)
+        # ✅ FIX: 7-second timeout for better UX
+        resp = requests.post(endpoint, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=7)
         if resp.status_code == 200:
             data = resp.json()
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -110,7 +103,6 @@ def get_ai_insight(raw_url: str, resolved_url: str) -> str:
 # ── 3. The Unroller (Redirect & Evasion Logic) ───────────────────────────────
 def trace_redirects(start_url: str) -> dict:
     """Unmasks the final destination and detects hidden HTML redirects."""
-    # 1. Resolve network-level hops (301/302)
     res = resolve(start_url)
     
     tracker_results = {
@@ -119,10 +111,9 @@ def trace_redirects(start_url: str) -> dict:
         "final_url": res.resolved_url,
         "meta_refresh_found": False,
         "error": res.error,
-        "redirect_chain": getattr(res, 'redirect_chain', [])  # FIX: Thread the chain to the UI
+        "redirect_chain": getattr(res, 'redirect_chain', [])
     }
 
-    # 2. Scrape for Client-Side Evasion (Meta-Refresh)
     if not res.error:
         try:
             with requests.get(res.resolved_url, timeout=4, stream=True, 
@@ -131,43 +122,28 @@ def trace_redirects(start_url: str) -> dict:
                 soup = BeautifulSoup(chunk, 'html.parser')
                 if soup.find('meta', attrs={'http-equiv': re.compile(r'refresh', re.I)}):
                     tracker_results["meta_refresh_found"] = True
-        except (requests.RequestException, OSError):  # FIX H-2: narrowed from bare except
+        except (requests.RequestException, OSError):
             pass
 
     return tracker_results
 
 # ── 4. The 11-Pillar Scoring Engine ──────────────────────────────────────────
-
-# FIX C-1: Added trace_data parameter so the route can pass pre-computed
-#           resolution data, eliminating the duplicate resolve() call that
-#           fired on every scan. Default of None keeps backwards compatibility
-#           for any direct callers (e.g. scan_image.py) that omit the argument.
 def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
                 trace_data: dict | None = None):
     """Calculates the 11-pillar risk score for a given URL."""
     checks = []
 
-    # PHASE 1: Resolve Deception
-    # FIX C-1: If trace_data was supplied by the caller, skip the internal
-    #           resolution entirely — the URL is already resolved upstream.
     if trace_data is None:
         trace_data = trace_redirects(url)
     target_url = trace_data["final_url"]
     
-    # PHASE 2: Anatomy Extraction
     decoded_url = unquote(target_url).lower()
     ext = tldextract.extract(decoded_url)
     domain = ext.domain
     full_host = f"{ext.subdomain}.{ext.domain}.{ext.suffix}".strip(".")
     parsed = urlparse(decoded_url if "://" in decoded_url else "https://" + decoded_url)
 
-    # --- THE 11 PILLARS ---
-    # Each check includes: name, label, status, message, metric, score, triggered
-    # status  → "SAFE" | "UNSAFE"  — drives the ✓ / ✕ icon in HeuristicCard
-    # message → human-readable explanation of the finding
-    # metric  → technical detail shown in the monospace pill (empty string hides it)
-
-    # 1. Global Reputation (The Gatekeeper)
+    # 1. Global Reputation
     is_trusted = is_highly_trusted(domain) or is_highly_trusted(full_host)
     checks.append({
         "name":      "reputation",
@@ -183,8 +159,8 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     # 2. IP Address Literal
     is_ip = False
     try:
-        ipaddress.ip_address(full_host); is_ip = True  # ✅ FIX: Evaluates full_host instead of domain
-    except ValueError:  # FIX H-2: narrowed from bare except (was catching SystemExit etc.)
+        ipaddress.ip_address(full_host); is_ip = True
+    except ValueError:
         pass
     checks.append({
         "name":      "ip_literal",
@@ -192,14 +168,14 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "status":    "UNSAFE" if is_ip else "SAFE",
         "message":   "Link uses a raw IP address instead of a registered domain name." if is_ip
                      else "Link uses a proper registered domain name. ✓",
-        "metric":    f"Host: {full_host}" if is_ip else "", # ✅ FIX: Displays full_host
+        "metric":    f"Host: {full_host}" if is_ip else "",
         "score":     25 if is_ip else 0,
         "triggered": is_ip,
     })
 
     # 3. Punycode/Homograph Attack
-    is_puny_encoded  = "xn--" in full_host      # catches raw punycode
-    is_unicode_spoof = not full_host.isascii()  # catches pàypal.com, аррlе.com etc.
+    is_puny_encoded  = "xn--" in full_host
+    is_unicode_spoof = not full_host.isascii()
     is_puny = is_puny_encoded or is_unicode_spoof
     checks.append({
         "name":      "punycode",
@@ -212,7 +188,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "triggered": is_puny,
     })
 
-    # 4. DGA Entropy (Shannon Math)
+    # 4. DGA Entropy
     ent_res = dga_score(domain)
     checks.append({
         "name":      "dga_entropy",
@@ -225,11 +201,9 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "triggered": ent_res.is_dga,
     })
 
-    # 5. Phishing Keywords
-    # FIX: Only search the path and query string so we don't penalize legitimate core domains!
+    # 5. Phishing Keywords (Path Only Fix)
     path_and_query = (parsed.path + "?" + parsed.query).lower()
     found_kws = [kw for kw in _PHISHING_KEYWORDS if kw in path_and_query]
-    
     checks.append({
         "name":      "path_keywords",
         "label":     "PATH KEYWORDS",
@@ -330,14 +304,11 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
 
     # 1. Apply base clamping based on reputation
     if is_trusted and not is_puny:
-        # FIX 1: Clamp to a minimum of 0 to prevent negative scores
         risk_score = max(0, min(raw_score, 10))
     else:
         risk_score = max(0, min(100, raw_score))
         
-    # 2. Apply Synergy and Critical Floors (FIX 2: Moved OUTSIDE the else block)
-    # The act of evasion (nested shorteners, HTML redirects) is inherently 
-    # dangerous, even if the final payload is hosted on a "trusted" AWS/Google server.
+    # 2. Apply Synergy and Critical Floors
     if non_reputation_triggered >= 2:
         risk_score = max(risk_score, 35)
         
@@ -349,14 +320,12 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     if blocklisted: risk_score = 100
     if allowlisted: risk_score = 0
 
-    # ✅ Define the label once for the dictionary and the assessment string
     final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
     
-    # ✅ Extract the top threat label dynamically to satisfy the Frontend/API payload
     triggered_checks = [c for c in checks if c["triggered"] and c["score"] > 0]
     top_threat = max(triggered_checks, key=lambda c: c["score"])["label"] if triggered_checks else "None"
 
-    # Trigger the AI Agent
+    # ✅ FIX: Actually call the AI agent here!
     ai_text = get_ai_insight(url, target_url)
 
     return {
@@ -371,6 +340,5 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "is_blocklisted":     blocklisted,
         "checks":             checks,
         "overall_assessment": "Trusted high-traffic domain." if is_trusted and risk_score < 30 else f"Analysis suggests {final_label.upper()}.",
-        "ai_analysis":        ai_text,  # ✅ ADDED THIS LINE
+        "ai_analysis":        ai_text,
     }
-
