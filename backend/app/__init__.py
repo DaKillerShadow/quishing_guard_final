@@ -33,6 +33,8 @@ from flask_cors import CORS
 from .database import db
 from .limiter  import limiter
 from .logger   import get_logger
+from dotenv import load_dotenv
+load_dotenv()
 
 log = get_logger("factory")
 

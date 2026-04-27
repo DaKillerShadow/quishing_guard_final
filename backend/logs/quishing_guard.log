@@ -83,3 +83,55 @@
 {"ts": "2026-04-27T20:48:07Z", "level": "WARNING", "module": "run", "msg": "Please set a secure ADMIN_PASSWORD in your Render environment variables.", "taskName": null}
 {"ts": "2026-04-27T20:48:07Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
 {"ts": "2026-04-27T20:48:07Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "WARNING", "module": "__init__", "msg": "[F-05] REDIS_URL is not set.  The rate limiter is using in-memory storage, which is per-worker.  With multiple Gunicorn workers the effective rate limit is multiplied by the worker count.  Set REDIS_URL in production to enforce correct limits.", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "INFO", "module": "__init__", "msg": "CORS_ORIGINS not set or empty \u2014 cross-origin requests denied.", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Checking database tables...", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "INFO", "module": "run", "msg": "\ud83c\udf31 Seeding database with built-in reputation lists...", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "INFO", "module": "run", "msg": "\u2705 Database seeded successfully.", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "WARNING", "module": "run", "msg": "\u274c SECURITY ALERT: ADMIN_PASSWORD is set to default!", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "WARNING", "module": "run", "msg": "Please set a secure ADMIN_PASSWORD in your Render environment variables.", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
+{"ts": "2026-04-27T21:25:24Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "WARNING", "module": "__init__", "msg": "[F-05] REDIS_URL is not set.  The rate limiter is using in-memory storage, which is per-worker.  With multiple Gunicorn workers the effective rate limit is multiplied by the worker count.  Set REDIS_URL in production to enforce correct limits.", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "INFO", "module": "__init__", "msg": "CORS_ORIGINS not set or empty \u2014 cross-origin requests denied.", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Checking database tables...", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "INFO", "module": "run", "msg": "\ud83c\udf31 Seeding database with built-in reputation lists...", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "INFO", "module": "run", "msg": "\u2705 Database seeded successfully.", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "WARNING", "module": "run", "msg": "\u274c SECURITY ALERT: ADMIN_PASSWORD is set to default!", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "WARNING", "module": "run", "msg": "Please set a secure ADMIN_PASSWORD in your Render environment variables.", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
+{"ts": "2026-04-27T21:26:50Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "WARNING", "module": "__init__", "msg": "[F-05] REDIS_URL is not set.  The rate limiter is using in-memory storage, which is per-worker.  With multiple Gunicorn workers the effective rate limit is multiplied by the worker count.  Set REDIS_URL in production to enforce correct limits.", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "INFO", "module": "__init__", "msg": "CORS enabled for origins: ['*']", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Checking database tables...", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "INFO", "module": "run", "msg": "\ud83c\udf31 Seeding database with built-in reputation lists...", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "INFO", "module": "run", "msg": "\u2705 Database seeded successfully.", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
+{"ts": "2026-04-27T21:33:11Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-27T21:34:58Z", "level": "WARNING", "module": "__init__", "msg": "[F-05] REDIS_URL is not set.  The rate limiter is using in-memory storage, which is per-worker.  With multiple Gunicorn workers the effective rate limit is multiplied by the worker count.  Set REDIS_URL in production to enforce correct limits.", "taskName": null}
+{"ts": "2026-04-27T21:34:58Z", "level": "INFO", "module": "__init__", "msg": "CORS enabled for origins: ['*']", "taskName": null}
+{"ts": "2026-04-27T21:34:59Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-27T21:34:59Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Checking database tables...", "taskName": null}
+{"ts": "2026-04-27T21:34:59Z", "level": "INFO", "module": "run", "msg": "\ud83c\udf31 Seeding database with built-in reputation lists...", "taskName": null}
+{"ts": "2026-04-27T21:34:59Z", "level": "INFO", "module": "run", "msg": "\u2705 Database seeded successfully.", "taskName": null}
+{"ts": "2026-04-27T21:34:59Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
+{"ts": "2026-04-27T21:34:59Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "WARNING", "module": "__init__", "msg": "[F-05] REDIS_URL is not set.  The rate limiter is using in-memory storage, which is per-worker.  With multiple Gunicorn workers the effective rate limit is multiplied by the worker count.  Set REDIS_URL in production to enforce correct limits.", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "INFO", "module": "__init__", "msg": "CORS enabled for origins: ['*']", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Checking database tables...", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "INFO", "module": "run", "msg": "\ud83c\udf31 Seeding database with built-in reputation lists...", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "INFO", "module": "run", "msg": "\u2705 Database seeded successfully.", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
+{"ts": "2026-04-27T21:36:57Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "WARNING", "module": "__init__", "msg": "[F-05] REDIS_URL is not set.  The rate limiter is using in-memory storage, which is per-worker.  With multiple Gunicorn workers the effective rate limit is multiplied by the worker count.  Set REDIS_URL in production to enforce correct limits.", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "INFO", "module": "__init__", "msg": "CORS enabled for origins: ['*']", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "INFO", "module": "__init__", "msg": "Quishing Guard app created", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Checking database tables...", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "INFO", "module": "run", "msg": "\ud83c\udf31 Seeding database with built-in reputation lists...", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "INFO", "module": "run", "msg": "\u2705 Database seeded successfully.", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "INFO", "module": "run", "msg": "\ud83d\ude80 Starting Quishing Guard API v2 locally on port 5000", "taskName": null}
+{"ts": "2026-04-27T21:40:23Z", "level": "INFO", "module": "run", "msg": "\ud83d\udee0\ufe0f Debug mode: False", "taskName": null}
