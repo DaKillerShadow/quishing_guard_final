@@ -24,22 +24,24 @@ MAX_HOPS        = 10
 PER_HOP_TIMEOUT = 5
 
 # ✅ Pillar #2: Known shortener domains to track for deception scoring
-KNOWN_SHORTENERS = {
+KNOWN_SHORTENERS = frozenset({
     'bit.ly', 't.co', 'goo.gl', 'tinyurl.com', 'is.gd', 
     'buff.ly', 'j.mp', 'rebrand.ly', 'qrco.de', 'tiny.cc', 
     'u.nu', 'shorturl.at', 'cutt.ly', 'ow.ly'
-}
+})
 
 # ── User-Agent Rotation ───────────────────────────────────────────────────────
-_MOBILE_USER_AGENTS = [
+_BROWSER_USER_AGENTS = [
+    # Mobile
     "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Linux; Android 13; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile/15E148",
-    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36",
+    # Desktop (Added to bypass mobile-only bot traps)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 ]
 
 def _get_user_agent() -> str:
-    return _random.choice(_MOBILE_USER_AGENTS)
+    return _random.choice(_BROWSER_USER_AGENTS)
 
 # ── SSRF: Private/Reserved Address Ranges ────────────────────────────────────
 _BLOCKED_RANGES = [
@@ -107,12 +109,14 @@ def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEO
     current = url
     shortener_count = 0
 
+    # ✅ FIX: Use a persistent session to mirror a real browser's connection pooling
+    session = requests.Session()
+
     for hop in range(max_hops + 1):
         parsed_url = urllib.parse.urlparse(current)
         host = (parsed_url.hostname or "").lower()
 
         # 1. SSRF Check (The Firewall)
-        
         if not host or _is_private(host):
             return ResolverResult(
                 original_url=raw_url, resolved_url=current,
@@ -122,18 +126,30 @@ def resolve(raw_url: str, max_hops: int = MAX_HOPS, timeout: int = PER_HOP_TIMEO
             )
 
         # 2. Shortener Detection (The Deception Logic)
-        if any(s in host for s in KNOWN_SHORTENERS):
+        is_shortener = any(s in host for s in KNOWN_SHORTENERS)
+        if is_shortener:
             shortener_count += 1
 
         try:
-            headers = {"User-Agent": _get_user_agent()}
-            # 3. Request (HEAD-first for speed)
+            # ✅ FIX: Added full browser headers to defeat basic bot fingerprinting
+            headers = {
+                "User-Agent": _get_user_agent(),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Upgrade-Insecure-Requests": "1",
+            }
             
-            resp = requests.head(current, headers=headers, allow_redirects=False, timeout=timeout)
-            
-            # Fallback to GET if HEAD is blocked (Common on LinkedIn/Bitly)
-            if resp.status_code in (403, 405):
-                resp = requests.get(current, headers=headers, allow_redirects=False, timeout=timeout, stream=True)
+            # 3. Request Logic
+            # ✅ FIX: Bot protections strongly penalize HEAD requests. 
+            # If it is a known shortener, ALWAYS use GET to perfectly mimic a human click.
+            if is_shortener:
+                resp = session.get(current, headers=headers, allow_redirects=False, timeout=timeout, stream=True)
+            else:
+                resp = session.head(current, headers=headers, allow_redirects=False, timeout=timeout)
+                
+                # ✅ FIX: Widened the safety net. If a server throws ANY error on a HEAD request, fallback to GET.
+                if resp.status_code >= 400:
+                    resp = session.get(current, headers=headers, allow_redirects=False, timeout=timeout, stream=True)
 
             status = resp.status_code
             location = resp.headers.get("Location", "")

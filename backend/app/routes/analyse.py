@@ -148,6 +148,7 @@ def analyse():
         "is_allowlisted": allowlisted,
         "is_blocklisted": blocklisted,
         "overall_assessment": result_data['overall_assessment'],
+        "ai_analysis":    result_data.get('ai_analysis', 'AI analysis unavailable.'), # ✅ ADDED: Pass AI result to Flutter!
         "analysed_at":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "checks":         result_data['checks']
     }), 200

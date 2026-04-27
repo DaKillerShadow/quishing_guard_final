@@ -64,6 +64,7 @@ class ScanResult {
     required this.hopCount,
     required this.scannedAt,
     required this.overallAssessment,
+    required this.aiAnalysis, // ✅ 1. Added AI Analysis
     this.topThreat,
     this.isAllowlisted = false,
     this.isBlocklisted = false,
@@ -80,15 +81,17 @@ class ScanResult {
   final int hopCount;
   final DateTime scannedAt;
   final String overallAssessment;
+  final String aiAnalysis; // ✅ 2. Added AI Analysis field
   final String? topThreat;
   final bool isAllowlisted;
   final bool isBlocklisted;
   bool reported;
 
   // Convenience getters for UI logic
-bool get isSafe    => riskScore < 30;
-bool get isWarning => riskScore >= 30 && riskScore < 60;
-bool get isDanger  => riskScore >= 60;
+  bool get isSafe    => riskScore < 30;
+  bool get isWarning => riskScore >= 30 && riskScore < 60;
+  bool get isDanger  => riskScore >= 60;
+  
   String get displayHost {
     try {
       return Uri.parse(resolvedUrl).host.replaceFirst('www.', '');
@@ -137,6 +140,7 @@ bool get isDanger  => riskScore >= 60;
       isBlocklisted: j['is_blocklisted'] == true,
       hopCount: (j['hop_count'] as num?)?.toInt() ?? 0,
       overallAssessment: j['overall_assessment']?.toString() ?? '',
+      aiAnalysis: j['ai_analysis']?.toString() ?? 'No AI analysis provided.', // ✅ 3. Parse AI data
       scannedAt: j['analysed_at'] != null
           ? DateTime.tryParse(j['analysed_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -160,9 +164,11 @@ bool get isDanger  => riskScore >= 60;
         'is_blocklisted': isBlocklisted,
         'hop_count': hopCount,
         'overall_assessment': overallAssessment,
+        'ai_analysis': aiAnalysis, // ✅ 4. Ensured AI Analysis is saved to history persistence
         'analysed_at': scannedAt.toIso8601String(),
         'redirect_chain': redirectChain,
         'checks': checks.map((c) => c.toJson()).toList(),
         'reported': reported,
       };
 }
+

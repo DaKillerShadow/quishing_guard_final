@@ -1,3 +1,4 @@
+
 // lib/features/preview/safe_preview_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,6 +33,9 @@ class _State extends ConsumerState<SafePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 👇 Check if the reputation pillar was triggered (meaning it's an unknown domain)
+    final isUnknownDomain = r.checks.any((c) => c.name == 'reputation' && c.triggered);
+
     return Scaffold(
       backgroundColor: AppColors.void_bg,
       appBar: AppBar(
@@ -68,8 +72,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // FIX: was using 'YOUR_LINK_VARIABLE_HERE' placeholder.
-                  // Tapping the URL box now copies it to clipboard.
                   GestureDetector(
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: r.resolvedUrl));
@@ -107,6 +109,168 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ],
               ),
             ),
+
+            // ── Zero-Day Warning Banner ───────────────────────────
+            if (isUnknownDomain)
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.ember.withValues(alpha: .08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.ember.withValues(alpha: .4)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.ember.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      spreadRadius: 1,
+                    )
+                  ]
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.new_releases_outlined, color: AppColors.ember, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'ZERO-DAY & UNVERIFIED INFRASTRUCTURE',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.ember,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'This domain is completely unknown to global reputation databases. '
+                            'Zero-day quishing campaigns rely on newly registered, unverified domains '
+                            'that have not yet been blacklisted by security vendors.\n\n'
+                            'Do not provide credentials to this site unless you explicitly trust the sender.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textColor.withValues(alpha: 0.9),
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── Physical QR Tampering Warning ─────────────────────
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.amber.withValues(alpha: .06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.amber.withValues(alpha: .3)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.qr_code_scanner_rounded, color: AppColors.amber, size: 22),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'PHYSICAL TAMPERING CHECK',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.amber,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Is this QR code from an unknown or public source? '
+                          'Scammers frequently place fake QR stickers over real ones on parking meters, restaurant tables, and posters.\n\n'
+                          'Run your finger over public codes to ensure it is not a sticker before opening the link.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textColor.withValues(alpha: 0.9),
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── AI Threat Analysis ────────────────────────────────
+            if (r.aiAnalysis.isNotEmpty && 
+                !r.aiAnalysis.contains('disabled') && 
+                !r.aiAnalysis.contains('unavailable') && 
+                !r.aiAnalysis.contains('timed out') && 
+                !r.aiAnalysis.contains('provided'))
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                decoration: BoxDecoration(
+                  color: AppColors.panel,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.arc.withValues(alpha: 0.4)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.arc.withValues(alpha: 0.05),
+                      blurRadius: 12,
+                      spreadRadius: 2,
+                    )
+                  ]
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      decoration: const BoxDecoration(
+                        border: Border(bottom: BorderSide(color: AppColors.rim)),
+                      ),
+                      child: Row(children: [
+                        const Text('🤖', style: TextStyle(fontSize: 14)),
+                        const SizedBox(width: 8),
+                        const Expanded(child: Text('AI Threat Analysis', style: TextStyle(
+                          fontFamily: 'monospace', fontSize: 12,
+                          fontWeight: FontWeight.w700, color: AppColors.arc,
+                        ))),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.arc.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('GEMINI 1.5', style: TextStyle(fontSize: 8, color: AppColors.arc, fontWeight: FontWeight.w800)),
+                        )
+                      ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Text(
+                        r.aiAnalysis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textColor,
+                          height: 1.5,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
             // ── Redirect chain ────────────────────────────────────
             if (r.redirectChain.length > 1)
