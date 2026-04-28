@@ -32,14 +32,13 @@ class _State extends ConsumerState<SafePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Check if the reputation pillar was triggered (unknown domain)
-    final isUnknownDomain =
-        r.checks.any((c) => c.name == 'reputation' && c.triggered);
+    // 1. Extract variables safely using Dart object properties
+    final bool isTrusted = !r.checks.any((c) => c.name == 'reputation' && c.triggered);
+    final int riskScore = r.riskScore;
 
     // FIX B-11: Only show the physical tampering banner for non-safe results
-    // or unknown domains. Showing it on a 0-score trusted domain (e.g. google.com)
-    // adds noise and erodes user trust in the UI.
-    final showTamperingWarning = isUnknownDomain || !r.isSafe;
+    // or unknown domains. Showing it on a 0-score trusted domain adds noise.
+    final showTamperingWarning = !isTrusted || !r.isSafe;
 
     return Scaffold(
       backgroundColor: AppColors.void_bg,
@@ -119,8 +118,50 @@ class _State extends ConsumerState<SafePreviewScreen> {
               ),
             ),
 
-            // ── Zero-Day Warning Banner ─────────────────────────────
-            if (isUnknownDomain)
+            // ── Zero-Trust Warning Banner (MERGED) ──────────────────
+            if (!isTrusted && riskScore < 30)
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orangeAccent.withValues(alpha: 0.1), 
+                  border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'ZERO-TRUST: UNVERIFIED SOURCE',
+                            style: TextStyle(
+                              color: Colors.orangeAccent,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              letterSpacing: 1.1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'No malicious code was detected (Score: 0), but this domain is not globally recognized. '
+                      'Zero-day attacks use clean, new links.\n\n'
+                      '🛑 Physical Check: Run your finger over the public QR code to ensure it is not a fake sticker. '
+                      'Do not enter passwords if you don\'t trust the source.',
+                      style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── Regular Zero-Day Warning (For High Risk) ────────────
+            if (!isTrusted && riskScore >= 30)
               Container(
                 margin:  const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 padding: const EdgeInsets.all(14),
@@ -177,9 +218,7 @@ class _State extends ConsumerState<SafePreviewScreen> {
               ),
 
             // ── Physical QR Tampering Warning ───────────────────────
-            // FIX B-11: Only show this for suspicious/unknown results — not for
-            // fully trusted safe domains where it is misleading noise.
-            if (showTamperingWarning)
+            if (showTamperingWarning && riskScore >= 30) // Only show standalone if score is high, since Zero-Trust covers the < 30 case
               Container(
                 margin:  const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 padding: const EdgeInsets.all(14),
@@ -679,4 +718,3 @@ class _Card extends StatelessWidget {
         ]),
       );
 }
-
