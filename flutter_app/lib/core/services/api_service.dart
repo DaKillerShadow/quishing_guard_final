@@ -1,3 +1,4 @@
+// lib/core/services/api_service.dart
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,9 +24,9 @@ final apiServiceProvider = Provider<ApiService>((ref) {
     },
   ));
 
-  // ✅ SEC-01: Auth Interceptor
-  // This attaches the JWT ONLY to requests targeting /admin paths.
-  // It reads fresh from storage on every request, preventing stale token bugs.
+  // SEC-01: Auth Interceptor
+  // Attaches the JWT ONLY to requests targeting /admin paths.
+  // Reads fresh from storage on every request to prevent stale token bugs.
   dio.interceptors.add(InterceptorsWrapper(
     onRequest: (options, handler) async {
       if (options.path.contains('/admin')) {
@@ -39,7 +40,7 @@ final apiServiceProvider = Provider<ApiService>((ref) {
     },
   ));
 
-  // Enable logging for debug builds
+  // Enable logging for debug builds only
   assert(() {
     dio.interceptors.add(LogInterceptor(requestBody: true, responseBody: true));
     return true;
@@ -68,7 +69,20 @@ class ApiService {
     }
   }
 
-  Future<List<String>> scanImage(List<int> imageBytes, String filename) async {
+  /// Uploads an image to the backend for server-side QR decoding and analysis.
+  ///
+  /// H-5 FIX: Previously returned List<String> (raw payloads only), discarding
+  /// the full analysis results that the backend already computed for each code.
+  /// The backend's /scan-image response includes a complete analyse_url() result
+  /// inside each code's "analysis" field — returning only the payload string
+  /// threw away the risk score, heuristic checks, and AI analysis.
+  ///
+  /// Now returns List<ScanResult> so callers receive the full analysis data,
+  /// consistent with what analyseUrl() returns for camera-scanned codes.
+  ///
+  /// The "skipped" codes (non-URL payloads like vCards / WiFi configs) are
+  /// excluded from the returned list since they have no analysis data.
+  Future<List<ScanResult>> scanImage(List<int> imageBytes, String filename) async {
     try {
       final formData = FormData.fromMap({
         'file': MultipartFile.fromBytes(
@@ -80,16 +94,33 @@ class ApiService {
           ),
         ),
       });
+
       final response = await _dio.post(
         '/api/v1/scan-image',
         data: formData,
         options: Options(contentType: 'multipart/form-data'),
       );
+
       final codes = response.data['codes'] as List<dynamic>? ?? [];
-      return codes
-          .map((c) => c['payload'] as String? ?? '')
-          .where((s) => s.isNotEmpty)
-          .toList();
+
+      // H-5 FIX: Parse the full ScanResult from each code's "analysis" field
+      // instead of returning only the raw payload string.
+      final results = <ScanResult>[];
+      for (final code in codes) {
+        if (code is! Map) continue;
+
+        final analysisData = code['analysis'];
+        if (analysisData is! Map) continue;
+
+        try {
+          results.add(
+            ScanResult.fromJson(Map<String, dynamic>.from(analysisData)),
+          );
+        } catch (_) {
+          // Malformed analysis entry — skip rather than crash the entire list.
+        }
+      }
+      return results;
     } on DioException catch (e) {
       throw _map(e);
     }
@@ -133,7 +164,6 @@ class ApiService {
       if (token != null) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('admin_token', token);
-        // ✅ FIXED: Removed _setAuthHeader call. Interceptor handles it now.
       }
       return token;
     } on DioException catch (e) {
@@ -141,15 +171,14 @@ class ApiService {
     }
   }
 
-  /// No-op in the new Interceptor architecture, but kept for compatibility.
+  /// No-op in the Interceptor architecture; kept for API compatibility.
   Future<void> loadSavedToken() async {
-    // Fresh token reading is now handled by the Interceptor's onRequest.
+    // Fresh token reading is handled by the Interceptor's onRequest.
   }
 
   Future<void> adminLogout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('admin_token');
-    // Header cleanup is implicit: the Interceptor won't find a token next time.
   }
 
   Future<Map<String, dynamic>> adminDashboard() async {
@@ -212,7 +241,7 @@ class ApiService {
   // ── Internal Error Mapping ─────────────────────────────────────────────────
 
   ApiException _map(DioException e) {
-    final data = e.response?.data;
+    final data    = e.response?.data;
     final message = (data is Map) ? data['error'] as String? : null;
 
     return switch (e.type) {
