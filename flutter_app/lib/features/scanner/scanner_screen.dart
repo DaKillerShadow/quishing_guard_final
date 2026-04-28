@@ -277,9 +277,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   // ── Demo Menu ──────────────────────────────────────────────────────────────
   void _showDemoMenu(BuildContext context) {
     // FIX B-07: Stop the camera while the demo sheet is open.
-    // Without this, a physical QR code in the background could trigger a real
-    // scan simultaneously with the demo, causing a race condition where two
-    // analysis calls fire at once and the navigation callback fires twice.
     _stopCamera();
 
     final demos = [
@@ -304,19 +301,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         'subtitle': 'Tests false-positive baseline',
       },
     ];
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1B26),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      // FIX B-07: Resume camera when the sheet is dismissed without a selection.
-      onClosing: () => _startCamera(),
-    ).then((_) {
-      // Ensure camera restarts even if the sheet was swiped away
-      _startCamera();
-    });
 
     showModalBottomSheet<void>(
       context: context,
@@ -348,11 +332,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         color: Colors.cyan, size: 16),
                     onTap: () {
                       Navigator.pop(ctx);
-                      // Camera will restart via _startCamera() in the .then() above,
-                      // but the controller needs it running for the analyse flow.
                       _startCamera();
-                      // FIX B-06: analyzeDemo now uses unawaited() internally
-                      // so this call is safe without await.
                       ref
                           .read(scannerStateProvider.notifier)
                           .analyzeDemo(demo['url']!);
@@ -362,7 +342,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
           ),
         );
       },
-    ).then((_) => _startCamera());
+    ).then((_) {
+      // FIX B-07: Ensure camera restarts if the sheet is swiped away
+      _startCamera();
+    });
   }
 
   @override
