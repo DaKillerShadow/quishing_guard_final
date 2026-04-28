@@ -1,4 +1,3 @@
-
 // lib/features/preview/safe_preview_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,23 +32,29 @@ class _State extends ConsumerState<SafePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 👇 Check if the reputation pillar was triggered (meaning it's an unknown domain)
-    final isUnknownDomain = r.checks.any((c) => c.name == 'reputation' && c.triggered);
+    // Check if the reputation pillar was triggered (unknown domain)
+    final isUnknownDomain =
+        r.checks.any((c) => c.name == 'reputation' && c.triggered);
+
+    // FIX B-11: Only show the physical tampering banner for non-safe results
+    // or unknown domains. Showing it on a 0-score trusted domain (e.g. google.com)
+    // adds noise and erodes user trust in the UI.
+    final showTamperingWarning = isUnknownDomain || !r.isSafe;
 
     return Scaffold(
       backgroundColor: AppColors.void_bg,
       appBar: AppBar(
         backgroundColor: AppColors.panel,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-          color: AppColors.muted,
+          icon:      const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+          color:     AppColors.muted,
           onPressed: () => context.pop(),
         ),
         title: const Text('Safe Preview'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.share_rounded, size: 18),
-            color: AppColors.muted,
+            icon:      const Icon(Icons.share_rounded, size: 18),
+            color:     AppColors.muted,
             onPressed: _share,
           ),
         ],
@@ -58,16 +63,19 @@ class _State extends ConsumerState<SafePreviewScreen> {
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           children: [
-            // ── Risk hero ────────────────────────────────────────
+            // ── Risk hero ───────────────────────────────────────────
             _RiskHero(
-              score: r.riskScore, label: r.riskLabel,
-              icon: _icon, color: _color, bgColor: _bgColor,
+              score:     r.riskScore,
+              label:     r.riskLabel,
+              icon:      _icon,
+              color:     _color,
+              bgColor:   _bgColor,
               scannedAt: r.scannedAt,
             ),
 
-            // ── Destination URL ───────────────────────────────────
+            // ── Destination URL ─────────────────────────────────────
             _Card(
-              icon: '🔗',
+              icon:  '🔗',
               title: 'Destination URL',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -77,26 +85,26 @@ class _State extends ConsumerState<SafePreviewScreen> {
                       Clipboard.setData(ClipboardData(text: r.resolvedUrl));
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('URL copied to clipboard'),
+                          content:  Text('URL copied to clipboard'),
                           duration: Duration(seconds: 2),
                         ),
                       );
                     },
                     child: Container(
-                      width: double.infinity,
+                      width:   double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: AppColors.void_bg,
+                        color:        AppColors.void_bg,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.rim),
+                        border:       Border.all(color: AppColors.rim),
                       ),
                       child: Text(
                         r.resolvedUrl,
                         style: const TextStyle(
                           fontFamily: 'monospace',
-                          fontSize: 11,
-                          color: AppColors.arc,
-                          height: 1.6,
+                          fontSize:   11,
+                          color:      AppColors.arc,
+                          height:     1.6,
                         ),
                       ),
                     ),
@@ -104,33 +112,36 @@ class _State extends ConsumerState<SafePreviewScreen> {
                   const SizedBox(height: 6),
                   Text(
                     '${r.hopCount} redirect hop${r.hopCount != 1 ? "s" : ""} followed safely',
-                    style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                    style: const TextStyle(
+                        fontSize: 10, color: AppColors.muted),
                   ),
                 ],
               ),
             ),
 
-            // ── Zero-Day Warning Banner ───────────────────────────
+            // ── Zero-Day Warning Banner ─────────────────────────────
             if (isUnknownDomain)
               Container(
-                margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                margin:  const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppColors.ember.withValues(alpha: .08),
+                  color:        AppColors.ember.withValues(alpha: .08),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.ember.withValues(alpha: .4)),
+                  border:       Border.all(
+                      color: AppColors.ember.withValues(alpha: .4)),
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.ember.withValues(alpha: 0.05),
-                      blurRadius: 10,
+                      color:       AppColors.ember.withValues(alpha: 0.05),
+                      blurRadius:  10,
                       spreadRadius: 1,
                     )
-                  ]
+                  ],
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.new_releases_outlined, color: AppColors.ember, size: 22),
+                    const Icon(Icons.new_releases_outlined,
+                        color: AppColors.ember, size: 22),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -139,10 +150,10 @@ class _State extends ConsumerState<SafePreviewScreen> {
                           const Text(
                             'ZERO-DAY & UNVERIFIED INFRASTRUCTURE',
                             style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.ember,
+                              fontFamily:    'monospace',
+                              fontSize:      10,
+                              fontWeight:    FontWeight.w800,
+                              color:         AppColors.ember,
                               letterSpacing: 0.5,
                             ),
                           ),
@@ -154,8 +165,8 @@ class _State extends ConsumerState<SafePreviewScreen> {
                             'Do not provide credentials to this site unless you explicitly trust the sender.',
                             style: TextStyle(
                               fontSize: 11,
-                              color: AppColors.textColor.withValues(alpha: 0.9),
-                              height: 1.5,
+                              color:    AppColors.textColor.withValues(alpha: 0.9),
+                              height:   1.5,
                             ),
                           ),
                         ],
@@ -165,72 +176,80 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ),
               ),
 
-            // ── Physical QR Tampering Warning ─────────────────────
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.amber.withValues(alpha: .06),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.amber.withValues(alpha: .3)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.qr_code_scanner_rounded, color: AppColors.amber, size: 22),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'PHYSICAL TAMPERING CHECK',
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.amber,
-                            letterSpacing: 0.5,
+            // ── Physical QR Tampering Warning ───────────────────────
+            // FIX B-11: Only show this for suspicious/unknown results — not for
+            // fully trusted safe domains where it is misleading noise.
+            if (showTamperingWarning)
+              Container(
+                margin:  const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color:        AppColors.amber.withValues(alpha: .06),
+                  borderRadius: BorderRadius.circular(12),
+                  border:       Border.all(
+                      color: AppColors.amber.withValues(alpha: .3)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.qr_code_scanner_rounded,
+                        color: AppColors.amber, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'PHYSICAL TAMPERING CHECK',
+                            style: TextStyle(
+                              fontFamily:    'monospace',
+                              fontSize:      10,
+                              fontWeight:    FontWeight.w800,
+                              color:         AppColors.amber,
+                              letterSpacing: 0.5,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Is this QR code from an unknown or public source? '
-                          'Scammers frequently place fake QR stickers over real ones on parking meters, restaurant tables, and posters.\n\n'
-                          'Run your finger over public codes to ensure it is not a sticker before opening the link.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textColor.withValues(alpha: 0.9),
-                            height: 1.5,
+                          const SizedBox(height: 6),
+                          Text(
+                            'Is this QR code from an unknown or public source? '
+                            'Scammers frequently place fake QR stickers over real ones on parking meters, '
+                            'restaurant tables, and posters.\n\n'
+                            'Run your finger over public codes to ensure it is not a sticker before opening the link.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color:    AppColors.textColor.withValues(alpha: 0.9),
+                              height:   1.5,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
 
-            // ── AI Threat Analysis ────────────────────────────────
-            if (r.aiAnalysis.isNotEmpty && !{
-              'AI analysis disabled. (GEMINI_API_KEY not set in environment).',
-              'AI analysis unavailable at this time.',
-              'AI analysis timed out.',
-              'No AI analysis provided.',
-            }.contains(r.aiAnalysis))
+            // ── AI Threat Analysis ──────────────────────────────────
+            if (r.aiAnalysis.isNotEmpty &&
+                !{
+                  'AI analysis disabled. (GEMINI_API_KEY not set in environment).',
+                  'AI analysis unavailable at this time.',
+                  'AI analysis timed out.',
+                  'No AI analysis provided.',
+                }.contains(r.aiAnalysis))
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 decoration: BoxDecoration(
-                  color: AppColors.panel,
+                  color:        AppColors.panel,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.arc.withValues(alpha: 0.4)),
+                  border:       Border.all(
+                      color: AppColors.arc.withValues(alpha: 0.4)),
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.arc.withValues(alpha: 0.05),
-                      blurRadius: 12,
+                      color:       AppColors.arc.withValues(alpha: 0.05),
+                      blurRadius:  12,
                       spreadRadius: 2,
                     )
-                  ]
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,22 +257,32 @@ class _State extends ConsumerState<SafePreviewScreen> {
                     Container(
                       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
                       decoration: const BoxDecoration(
-                        border: Border(bottom: BorderSide(color: AppColors.rim)),
+                        border: Border(
+                            bottom: BorderSide(color: AppColors.rim)),
                       ),
                       child: Row(children: [
                         const Text('🤖', style: TextStyle(fontSize: 14)),
                         const SizedBox(width: 8),
-                        const Expanded(child: Text('AI Threat Analysis', style: TextStyle(
-                          fontFamily: 'monospace', fontSize: 12,
-                          fontWeight: FontWeight.w700, color: AppColors.arc,
-                        ))),
+                        const Expanded(
+                            child: Text('AI Threat Analysis',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize:   12,
+                                  fontWeight: FontWeight.w700,
+                                  color:      AppColors.arc,
+                                ))),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppColors.arc.withValues(alpha: 0.1),
+                            color:        AppColors.arc.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text('GEMINI 1.5', style: TextStyle(fontSize: 8, color: AppColors.arc, fontWeight: FontWeight.w800)),
+                          child: const Text('GEMINI 1.5',
+                              style: TextStyle(
+                                  fontSize:   8,
+                                  color:      AppColors.arc,
+                                  fontWeight: FontWeight.w800)),
                         )
                       ]),
                     ),
@@ -262,10 +291,10 @@ class _State extends ConsumerState<SafePreviewScreen> {
                       child: Text(
                         r.aiAnalysis,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textColor,
-                          height: 1.5,
-                          fontStyle: FontStyle.italic,
+                          fontSize:   12,
+                          color:      AppColors.textColor,
+                          height:     1.5,
+                          fontStyle:  FontStyle.italic,
                         ),
                       ),
                     ),
@@ -273,109 +302,117 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ),
               ),
 
-            // ── Redirect chain ────────────────────────────────────
+            // ── Redirect chain ──────────────────────────────────────
             if (r.redirectChain.length > 1)
               _Card(
-                icon: '🔀',
+                icon:  '🔀',
                 title: 'Redirect Chain  (${r.redirectChain.length} hops)',
                 child: Column(
-                  children: r.redirectChain.asMap().entries.map((e) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 20, height: 20,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.arc.withValues(alpha: .08),
-                            border: Border.all(color: AppColors.arc.withValues(alpha: .25)),
-                          ),
-                          child: Text(
-                            '${e.key + 1}',
-                            style: const TextStyle(
-                              fontSize: 9,
-                              color: AppColors.arc,
-                              fontWeight: FontWeight.w700,
+                  children: r.redirectChain.asMap().entries.map((e) =>
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width:     20,
+                            height:    20,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape:  BoxShape.circle,
+                              color:  AppColors.arc.withValues(alpha: .08),
+                              border: Border.all(
+                                  color: AppColors.arc.withValues(alpha: .25)),
+                            ),
+                            child: Text(
+                              '${e.key + 1}',
+                              style: const TextStyle(
+                                fontSize:   9,
+                                color:      AppColors.arc,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            e.value,
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 10,
-                              color: AppColors.arc.withValues(alpha: .7),
-                              height: 1.5,
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              e.value,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize:   10,
+                                color:      AppColors.arc.withValues(alpha: .7),
+                                height:     1.5,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  )).toList(),
+                        ],
+                      ),
+                    )).toList(),
                 ),
               ),
 
-            // ── 7 heuristic checks ────────────────────────────────
+            // ── Security Analysis ───────────────────────────────────
             _Card(
-              icon: '🔬',
-              title: 'Security Analysis',
+              icon:     '🔬',
+              title:    'Security Analysis',
               trailing: RiskBadge(label: r.riskLabel, score: r.riskScore),
               child: Column(
                 children: r.checks.map((c) => HeuristicCard(check: c)).toList(),
               ),
             ),
 
-            // ── Micro-lesson nudge ────────────────────────────────
+            // ── Micro-lesson nudge ──────────────────────────────────
             if (r.riskScore >= 30)
               GestureDetector(
                 onTap: () => context.push('/lesson', extra: r),
                 child: Container(
-                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  margin:  const EdgeInsets.fromLTRB(16, 0, 16, 12),
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppColors.arc.withValues(alpha: .06),
+                    color:        AppColors.arc.withValues(alpha: .06),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.arc.withValues(alpha: .2)),
+                    border:       Border.all(
+                        color: AppColors.arc.withValues(alpha: .2)),
                   ),
                   child: Row(children: [
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.arc.withValues(alpha: .12),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          '📚  Security Lesson',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: AppColors.arc,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.5,
+                    Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color:        AppColors.arc.withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              '📚  Security Lesson',
+                              style: TextStyle(
+                                fontSize:      9,
+                                color:         AppColors.arc,
+                                fontWeight:    FontWeight.w600,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Tap to learn about this threat →',
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          color: AppColors.textColor,
-                        ),
-                      ),
-                    ]),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Tap to learn about this threat →',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize:   12,
+                              color:      AppColors.textColor,
+                            ),
+                          ),
+                        ]),
                     const Spacer(),
-                    Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.arc),
+                    Icon(Icons.arrow_forward_ios_rounded,
+                        size: 14, color: AppColors.arc),
                   ]),
                 ),
               ),
 
-            // ── Action buttons ────────────────────────────────────
+            // ── Action buttons ──────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Column(children: [
@@ -397,12 +434,18 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ),
                 const SizedBox(height: 10),
                 Row(children: [
-                  Expanded(child: OutlinedButton(
+                  Expanded(
+                      child: OutlinedButton(
                     onPressed: _reporting || _reported ? null : _report,
-                    child: Text(_reported ? '✓ REPORTED' : _reporting ? '⏳ …' : '🚩 REPORT'),
+                    child: Text(_reported
+                        ? '✓ REPORTED'
+                        : _reporting
+                            ? '⏳ …'
+                            : '🚩 REPORT'),
                   )),
                   const SizedBox(width: 10),
-                  Expanded(child: OutlinedButton(
+                  Expanded(
+                      child: OutlinedButton(
                     onPressed: _share,
                     child: const Text('⬆ SHARE'),
                   )),
@@ -415,11 +458,39 @@ class _State extends ConsumerState<SafePreviewScreen> {
     );
   }
 
-  void _openUrl() async {
+  // FIX B-08: _openUrl was a void async method; errors were silently dropped
+  // because nothing awaited it or caught exceptions from launchUrl().
+  // Now errors surface to the user via a SnackBar.
+  Future<void> _openUrl() async {
     final uri = Uri.tryParse(r.resolvedUrl);
-    if (uri == null) return;
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (uri == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid URL — cannot open.')),
+        );
+      }
+      return;
+    }
+    try {
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:         Text('Could not open the link. No browser found?'),
+            backgroundColor: AppColors.ember,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:         Text('Failed to open link: ${e.toString()}'),
+            backgroundColor: AppColors.ember,
+          ),
+        );
+      }
     }
   }
 
@@ -428,7 +499,8 @@ class _State extends ConsumerState<SafePreviewScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.panel,
-        title: const Text('⚠️ High Risk', style: TextStyle(color: AppColors.ember)),
+        title: const Text('⚠️ High Risk',
+            style: TextStyle(color: AppColors.ember)),
         content: const Text(
           'This link is flagged as highly suspicious.\n\n'
           'Opening it may lead to a phishing page designed to steal your credentials.\n\n'
@@ -438,11 +510,16 @@ class _State extends ConsumerState<SafePreviewScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.muted)),
+            child: const Text('Cancel',
+                style: TextStyle(color: AppColors.muted)),
           ),
           TextButton(
-            onPressed: () { Navigator.pop(context); _openUrl(); },
-            child: const Text('Open Anyway', style: TextStyle(color: AppColors.ember)),
+            onPressed: () {
+              Navigator.pop(context);
+              _openUrl();
+            },
+            child: const Text('Open Anyway',
+                style: TextStyle(color: AppColors.ember)),
           ),
         ],
       ),
@@ -450,36 +527,55 @@ class _State extends ConsumerState<SafePreviewScreen> {
   }
 
   Future<void> _report() async {
+    // FIX: Guard against empty ID before calling the API
+    if (r.id.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot report: scan ID is missing.')),
+        );
+      }
+      return;
+    }
+
     setState(() => _reporting = true);
     try {
       await ref.read(apiServiceProvider).reportPhishing(
-        resolvedUrl: r.resolvedUrl, reason: 'user_report');
+          resolvedUrl: r.resolvedUrl, reason: 'user_report');
       await ref.read(historyProvider.notifier).markReported(r.id);
-      setState(() { _reporting = false; _reported = true; });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Report submitted — queued for admin review.')));
+      setState(() {
+        _reporting = false;
+        _reported  = true;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Report submitted — queued for admin review.')));
+      }
     } catch (_) {
       setState(() => _reporting = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Report failed — check your connection'),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:         Text('Report failed — check your connection'),
           backgroundColor: AppColors.ember,
-        ),
-      );
+        ));
+      }
     }
   }
 
   void _share() {
     // Extract the names of only the pillars that fired
-    final triggeredChecks = widget.result.checks
+    final triggeredChecks = r.checks
         .where((c) => c.status != 'SAFE')
         .map((c) => c.label)
         .join(' · ');
-        
-    final checksText = triggeredChecks.isNotEmpty ? '\n⚠ Triggered: $triggeredChecks' : '';
-    
+
+    final checksText =
+        triggeredChecks.isNotEmpty ? '\n⚠ Triggered: $triggeredChecks' : '';
+
     Share.share(
-        '🛡 Quishing Guard\nURL: ${widget.result.url}\nRisk: ${widget.result.riskLabel.toUpperCase()} (${widget.result.riskScore}/100)$checksText'
+      '🛡 Quishing Guard\n'
+      'URL: ${r.url}\n'
+      'Risk: ${r.riskLabel.toUpperCase()} (${r.riskScore}/100)'
+      '$checksText',
     );
   }
 }
@@ -488,8 +584,12 @@ class _State extends ConsumerState<SafePreviewScreen> {
 
 class _RiskHero extends StatelessWidget {
   const _RiskHero({
-    required this.score, required this.label, required this.icon,
-    required this.color, required this.bgColor, required this.scannedAt,
+    required this.score,
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.bgColor,
+    required this.scannedAt,
   });
   final int score;
   final String label, icon;
@@ -498,43 +598,50 @@ class _RiskHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    margin: const EdgeInsets.all(16),
-    padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
-    decoration: BoxDecoration(
-      color: bgColor,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: color.withValues(alpha: .3)),
-    ),
-    child: Column(children: [
-      Text(icon, style: TextStyle(fontSize: 36, color: color)),
-      const SizedBox(height: 8),
-      Text(
-        '$score',
-        style: TextStyle(
-          fontFamily: 'monospace', fontSize: 52,
-          fontWeight: FontWeight.w800, color: color, height: 1,
+        width:   double.infinity,
+        margin:  const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+        decoration: BoxDecoration(
+          color:        bgColor,
+          borderRadius: BorderRadius.circular(16),
+          border:       Border.all(color: color.withValues(alpha: .3)),
         ),
-      ),
-      Text(
-        '/100 — ${label.toUpperCase()}',
-        style: const TextStyle(fontSize: 11, color: AppColors.muted, letterSpacing: 1.2),
-      ),
-      const SizedBox(height: 8),
-      Text(_fmt(scannedAt), style: const TextStyle(fontSize: 10, color: AppColors.muted)),
-    ]),
-  );
+        child: Column(children: [
+          Text(icon, style: TextStyle(fontSize: 36, color: color)),
+          const SizedBox(height: 8),
+          Text(
+            '$score',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize:   52,
+              fontWeight: FontWeight.w800,
+              color:      color,
+              height:     1,
+            ),
+          ),
+          Text(
+            '/100 — ${label.toUpperCase()}',
+            style: const TextStyle(
+                fontSize: 11, color: AppColors.muted, letterSpacing: 1.2),
+          ),
+          const SizedBox(height: 8),
+          Text(_fmt(scannedAt),
+              style: const TextStyle(fontSize: 10, color: AppColors.muted)),
+        ]),
+      );
 
   static String _fmt(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')} '
-      '${['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.month]} '
-      '${d.year}  ${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+      '${['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.month]} '
+      '${d.year}  ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }
 
 class _Card extends StatelessWidget {
   const _Card({
-    required this.icon, required this.title,
-    required this.child, this.trailing,
+    required this.icon,
+    required this.title,
+    required this.child,
+    this.trailing,
   });
   final String icon, title;
   final Widget child;
@@ -542,29 +649,34 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-    decoration: BoxDecoration(
-      color: AppColors.panel,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: AppColors.rim),
-    ),
-    child: Column(children: [
-      Container(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.rim)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        decoration: BoxDecoration(
+          color:        AppColors.panel,
+          borderRadius: BorderRadius.circular(12),
+          border:       Border.all(color: AppColors.rim),
         ),
-        child: Row(children: [
-          Text(icon, style: const TextStyle(fontSize: 14)),
-          const SizedBox(width: 8),
-          Expanded(child: Text(title, style: const TextStyle(
-            fontFamily: 'monospace', fontSize: 12,
-            fontWeight: FontWeight.w600, color: AppColors.textColor,
-          ))),
-          if (trailing != null) trailing!,
+        child: Column(children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.rim)),
+            ),
+            child: Row(children: [
+              Text(icon, style: const TextStyle(fontSize: 14)),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(title,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize:   12,
+                        fontWeight: FontWeight.w600,
+                        color:      AppColors.textColor,
+                      ))),
+              if (trailing != null) trailing!,
+            ]),
+          ),
+          Padding(padding: const EdgeInsets.all(14), child: child),
         ]),
-      ),
-      Padding(padding: const EdgeInsets.all(14), child: child),
-    ]),
-  );
+      );
 }
+
