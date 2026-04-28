@@ -105,7 +105,7 @@ def get_ai_insight(raw_url: str, resolved_url: str) -> str:
 
     endpoint = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-1.5-flash-latest:generateContent?key={api_key}"
+        f"gemini-flash-latest:generateContent?key={api_key}"
     )
 
     for attempt in range(3):
