@@ -1,4 +1,5 @@
 // lib/features/scanner/scanner_screen.dart
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,9 +14,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
 import '../../core/utils/api_exception.dart';
-import '../../core/utils/app_constants.dart'; 
+import '../../core/utils/app_constants.dart';
 import '../../shared/theme/app_theme.dart';
-import '../../shared/widgets/scan_overlay.dart'; 
+import '../../shared/widgets/scan_overlay.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/security_error_widget.dart';
 
@@ -45,11 +46,11 @@ class ScannerState {
     bool? torchOn,
   }) =>
       ScannerState(
-        state: state ?? this.state,
-        statusMsg: statusMsg ?? this.statusMsg,
-        errorMsg: errorMsg ?? this.errorMsg,
+        state:        state        ?? this.state,
+        statusMsg:    statusMsg    ?? this.statusMsg,
+        errorMsg:     errorMsg     ?? this.errorMsg,
         apiException: apiException,
-        torchOn: torchOn ?? this.torchOn,
+        torchOn:      torchOn      ?? this.torchOn,
       );
 }
 
@@ -73,7 +74,7 @@ class ScannerController extends StateNotifier<ScannerState> {
 
   void onDetect(BarcodeCapture capture) {
     final barcode = capture.barcodes.firstOrNull;
-    final value = barcode?.rawValue;
+    final value   = barcode?.rawValue;
     if (value == null || value.isEmpty) return;
 
     final now = DateTime.now();
@@ -81,29 +82,32 @@ class ScannerController extends StateNotifier<ScannerState> {
         _lastAt != null &&
         now.difference(_lastAt!) < _debounce) return;
     _lastCode = value;
-    _lastAt = now;
+    _lastAt   = now;
 
     HapticFeedback.mediumImpact();
     _analyse(value);
   }
 
-  // Safely passes the demo URL to the analyzer
-  Future<void> analyzeDemo(String url) async {
-    await _analyse(url);
+  // FIX B-06: analyzeDemo was called in a fire-and-forget onTap without
+  // awaiting — unhandled errors were silently dropped. The fix is to mark
+  // the internal call with unawaited() so lint is satisfied and we still
+  // surface errors via the normal state machine inside _analyse().
+  void analyzeDemo(String url) {
+    unawaited(_analyse(url));
   }
 
   Future<void> _analyse(String rawUrl) async {
     final lower = rawUrl.toLowerCase();
-    
+
     // 1. Reject specific non-web schemas
-    if (lower.startsWith('wifi:') || 
-        lower.startsWith('begin:vcard') || 
-        lower.startsWith('tel:') || 
-        lower.startsWith('mailto:') || 
+    if (lower.startsWith('wifi:')         ||
+        lower.startsWith('begin:vcard')   ||
+        lower.startsWith('tel:')          ||
+        lower.startsWith('mailto:')       ||
         lower.startsWith('sms:')) {
       state = state.copyWith(
-        state: ScanState.error,
-        errorMsg: 'Not a valid URL. QR code contains text: "$rawUrl"',
+        state:     ScanState.error,
+        errorMsg:  'Not a valid URL. QR code contains text: "$rawUrl"',
         statusMsg: 'Not a web link — tap to retry',
       );
       return;
@@ -114,30 +118,30 @@ class ScannerController extends StateNotifier<ScannerState> {
         ? rawUrl
         : 'https://$rawUrl';
 
-    // ✅ FIX 3: Check connectivity before hitting the API
+    // 3. Check connectivity before hitting the API
     final connectivity = await Connectivity().checkConnectivity();
     if (connectivity.every((r) => r == ConnectivityResult.none)) {
       state = state.copyWith(
-        state: ScanState.error,
-        errorMsg: 'No internet connection. Please check your network and try again.',
+        state:     ScanState.error,
+        errorMsg:  'No internet connection. Please check your network and try again.',
         statusMsg: 'Offline — tap to retry',
       );
       return;
     }
 
     state = state.copyWith(
-      state: ScanState.analysing,
+      state:     ScanState.analysing,
       statusMsg: '✓ QR detected — analysing…',
     );
-    
+
     try {
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
       await _ref.read(historyProvider.notifier).add(result);
 
       state = state.copyWith(state: ScanState.done);
-      
-      // ✅ FIX 1: Read autoLesson preference and route dynamically
-      final prefs = await SharedPreferences.getInstance();
+
+      // Read autoLesson preference and route dynamically
+      final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
 
       if (autoLesson && result.riskScore >= 60) {
@@ -148,29 +152,34 @@ class ScannerController extends StateNotifier<ScannerState> {
 
     } on ApiException catch (e) {
       state = state.copyWith(
-        state: ScanState.error,
+        state:        ScanState.error,
         apiException: e,
-        statusMsg: 'Analysis failed — tap to retry',
+        statusMsg:    'Analysis failed — tap to retry',
       );
     } catch (e) {
       state = state.copyWith(
-        state: ScanState.error,
-        errorMsg: e.toString(),
+        state:     ScanState.error,
+        errorMsg:  e.toString(),
         statusMsg: 'Analysis failed — tap to retry',
       );
     }
   }
 
   Future<void> scanFromGallery() async {
+    // Guard: image picker behaves differently on web; the UI already hides
+    // this button on web via kIsWeb, but we add a safety check here too.
+    if (kIsWeb) return;
+
     final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
+    final image  = await picker.pickImage(source: ImageSource.gallery);
     if (image == null) return;
 
     state = state.copyWith(
         state: ScanState.scanning, statusMsg: '🔍 Analysing image...');
     final controller = MobileScannerController();
     try {
-      final BarcodeCapture? capture = await controller.analyzeImage(image.path);
+      final BarcodeCapture? capture =
+          await controller.analyzeImage(image.path);
       if (capture != null && capture.barcodes.isNotEmpty) {
         final String? code = capture.barcodes.first.rawValue;
         if (code != null) {
@@ -179,10 +188,16 @@ class ScannerController extends StateNotifier<ScannerState> {
         }
       } else {
         state = state.copyWith(
-            state: ScanState.error,
-            errorMsg: 'No QR code found.',
+            state:     ScanState.error,
+            errorMsg:  'No QR code found in the selected image.',
             statusMsg: 'Point at a QR code');
       }
+    } catch (e) {
+      // FIX: surface gallery-scan errors through normal state machine
+      state = state.copyWith(
+          state:     ScanState.error,
+          errorMsg:  'Gallery scan failed: ${e.toString()}',
+          statusMsg: 'Point at a QR code');
     } finally {
       controller.dispose();
     }
@@ -216,8 +231,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     WidgetsBinding.instance.addObserver(this);
     _cam = MobileScannerController(
       detectionSpeed: DetectionSpeed.normal,
-      facing: CameraFacing.back,
-      formats: [BarcodeFormat.qrCode],
+      facing:         CameraFacing.back,
+      formats:        [BarcodeFormat.qrCode],
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(_navigateProvider.notifier).state = (path, {extra}) {
@@ -259,28 +274,34 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     super.dispose();
   }
 
-  // ── Merged Demo Menu Function ───────────────────────────────────────────────
+  // ── Demo Menu ──────────────────────────────────────────────────────────────
   void _showDemoMenu(BuildContext context) {
+    // FIX B-07: Stop the camera while the demo sheet is open.
+    // Without this, a physical QR code in the background could trigger a real
+    // scan simultaneously with the demo, causing a race condition where two
+    // analysis calls fire at once and the navigation callback fires twice.
+    _stopCamera();
+
     final demos = [
       {
-        'title': '🍎 1. Apple Punycode (False UI)',
-        'url': 'https://xn--pple-43d.com/login',
-        'subtitle': 'Tests homograph attack detection'
+        'title':    '🍎 1. Apple Punycode (False UI)',
+        'url':      'https://xn--pple-43d.com/login',
+        'subtitle': 'Tests homograph attack detection',
       },
       {
-        'title': '🔀 2. Nested Shorteners -> IP',
-        'url': 'https://tinyurl.com/ydshc39r', // fix59ا
-        'subtitle': 'Tests unrolling & IP literal detection'
+        'title':    '🔀 2. Nested Shorteners -> IP',
+        'url':      'https://tinyurl.com/ydshc39r',
+        'subtitle': 'Tests unrolling & IP literal detection',
       },
       {
-        'title': '🚨 3. Zero-Day Infrastructure',
-        'url': 'https://broccar.tryorder.net/menu',
-        'subtitle': 'Tests global reputation banner'
+        'title':    '🚨 3. Zero-Day Infrastructure',
+        'url':      'https://broccar.tryorder.net/menu',
+        'subtitle': 'Tests global reputation banner',
       },
       {
-        'title': '✅ 4. Safe URL',
-        'url': 'https://docs.google.com/',
-        'subtitle': 'Tests false-positive baseline'
+        'title':    '✅ 4. Safe URL',
+        'url':      'https://docs.google.com/',
+        'subtitle': 'Tests false-positive baseline',
       },
     ];
 
@@ -290,7 +311,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
+      // FIX B-07: Resume camera when the sheet is dismissed without a selection.
+      onClosing: () => _startCamera(),
+    ).then((_) {
+      // Ensure camera restarts even if the sheet was swiped away
+      _startCamera();
+    });
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1A1B26),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -299,37 +333,50 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                 padding: EdgeInsets.all(16.0),
                 child: Text(
                   '🧪 Presentation Demo Mode',
-                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
                 ),
               ),
               ...demos.map((demo) => ListTile(
-                    title: Text(demo['title']!, style: const TextStyle(color: Colors.white)),
-                    subtitle: Text(demo['subtitle']!, style: const TextStyle(color: Colors.grey)),
-                    trailing: const Icon(Icons.arrow_forward_ios, color: Colors.cyan, size: 16),
+                    title: Text(demo['title']!,
+                        style: const TextStyle(color: Colors.white)),
+                    subtitle: Text(demo['subtitle']!,
+                        style: const TextStyle(color: Colors.grey)),
+                    trailing: const Icon(Icons.arrow_forward_ios,
+                        color: Colors.cyan, size: 16),
                     onTap: () {
-                      Navigator.pop(context);
-                      // التعديل النهائي هنا: ربط الديمو بدالة الفحص الرسمية في الـ Controller
-                      ref.read(scannerStateProvider.notifier).analyzeDemo(demo['url']!);
+                      Navigator.pop(ctx);
+                      // Camera will restart via _startCamera() in the .then() above,
+                      // but the controller needs it running for the analyse flow.
+                      _startCamera();
+                      // FIX B-06: analyzeDemo now uses unawaited() internally
+                      // so this call is safe without await.
+                      ref
+                          .read(scannerStateProvider.notifier)
+                          .analyzeDemo(demo['url']!);
                     },
                   )),
             ],
           ),
         );
       },
-    );
+    ).then((_) => _startCamera());
   }
 
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerStateProvider);
     final isLoading = scanState.state == ScanState.analysing;
-    final hasError = scanState.apiException != null;
+    final hasError  = scanState.apiException != null;
 
     ref.listen(scannerStateProvider, (previous, next) {
       if (next.apiException == null && next.errorMsg != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(next.errorMsg!), backgroundColor: AppColors.ember),
+              content:         Text(next.errorMsg!),
+              backgroundColor: AppColors.ember),
         );
       }
     });
@@ -342,7 +389,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
           Positioned.fill(
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(
-                sigmaX: hasError ? 2 : 0, 
+                sigmaX: hasError ? 2 : 0,
                 sigmaY: hasError ? 2 : 0,
               ),
               child: MobileScanner(
@@ -359,46 +406,50 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
                     child: Row(
                       children: [
                         GestureDetector(
                           onTap: () => _showArchitectDialog(context),
                           child: const _TopChip(
-                              icon: '🛡',
+                              icon:  '🛡',
                               label: 'Quishing Guard',
                               color: AppColors.arc),
                         ),
                         const Spacer(),
-                      if (!kIsWeb) ...[
-                        _IconBtn(
-                          icon: Icons.flash_on_rounded,
-                          active: scanState.torchOn,
-                          onTap: () async {
-                            await _cam.toggleTorch();
-                            ref.read(scannerStateProvider.notifier).setTorch(!scanState.torchOn);
-                          },
-                        ),
-                        const SizedBox(width: 8),
+                        if (!kIsWeb) ...[
+                          _IconBtn(
+                            icon:   Icons.flash_on_rounded,
+                            active: scanState.torchOn,
+                            onTap:  () async {
+                              await _cam.toggleTorch();
+                              ref
+                                  .read(scannerStateProvider.notifier)
+                                  .setTorch(!scanState.torchOn);
+                            },
+                          ),
+                          const SizedBox(width: 8),
                         ],
                         _IconBtn(
-                            icon: Icons.settings_rounded,
+                            icon:  Icons.settings_rounded,
                             onTap: () => context.push('/settings')),
                       ],
                     ),
                   ),
-                  
                   const SizedBox(height: 8),
                   Text(
-                    AppConstants.tagline, 
+                    AppConstants.tagline,
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w300,
+                      fontSize:      13,
+                      fontWeight:    FontWeight.w300,
                       letterSpacing: 1.5,
-                      color: AppColors.textColor.withValues(alpha: 0.6), 
-                      fontStyle: FontStyle.italic,
+                      color:         AppColors.textColor.withValues(alpha: 0.6),
+                      fontStyle:     FontStyle.italic,
                       shadows: [
-                        Shadow(blurRadius: 8, color: Colors.black.withValues(alpha: 0.8)) 
+                        Shadow(
+                            blurRadius: 8,
+                            color: Colors.black.withValues(alpha: 0.8))
                       ],
                     ),
                   ),
@@ -408,19 +459,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
           if (!hasError)
             Positioned(
-              left: 0,
-              right: 0,
+              left:   0,
+              right:  0,
               bottom: 0,
               child: SafeArea(
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
+                      begin:  Alignment.bottomCenter,
+                      end:    Alignment.topCenter,
                       colors: [
                         AppColors.void_bg,
-                        AppColors.void_bg.withValues(alpha: 0) 
+                        AppColors.void_bg.withValues(alpha: 0),
                       ],
                     ),
                   ),
@@ -428,76 +479,80 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppColors.panel.withValues(alpha: .9), 
+                          color:        AppColors.panel.withValues(alpha: .9),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.rim),
+                          border:       Border.all(color: AppColors.rim),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.qr_code_scanner_rounded, size: 14, color: AppColors.arc),
+                            const Icon(Icons.qr_code_scanner_rounded,
+                                size: 14, color: AppColors.arc),
                             const SizedBox(width: 8),
                             Text(scanState.statusMsg,
                                 style: const TextStyle(
                                     fontFamily: 'monospace',
-                                    fontSize: 11,
-                                    color: AppColors.arc)),
+                                    fontSize:   11,
+                                    color:      AppColors.arc)),
                           ],
                         ),
                       ),
                       const SizedBox(height: 14),
-                      
                       Row(
                         children: [
                           if (!kIsWeb) ...[
                             Expanded(
                               child: _CtrlBtn(
-                                icon: '🖼', 
-                                label: 'Gallery', 
-                                onTap: ref.read(scannerStateProvider.notifier).scanFromGallery,
+                                icon:  '🖼',
+                                label: 'Gallery',
+                                onTap: ref
+                                    .read(scannerStateProvider.notifier)
+                                    .scanFromGallery,
                               ),
                             ),
                             const SizedBox(width: 10),
                           ],
                           Expanded(
                             child: _CtrlBtn(
-                              icon: '📋', 
-                              label: 'History', 
+                              icon:  '📋',
+                              label: 'History',
                               onTap: () => context.push('/history'),
                             ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: _CtrlBtn(
-                              icon: '▶', 
-                              label: 'Demos', 
-                              onTap: () => _showDemoMenu(context), // Linked to the new Demo Menu
+                              icon:      '▶',
+                              label:     'Demos',
+                              onTap:     () => _showDemoMenu(context),
                               highlight: true,
                             ),
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 16),
-
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.code_rounded, size: 12, color: AppColors.muted),
+                            const Icon(Icons.code_rounded,
+                                size: 12, color: AppColors.muted),
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
                                 '<\\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
-                                textAlign: TextAlign.center,
-                                overflow: TextOverflow.ellipsis,
+                                textAlign:  TextAlign.center,
+                                overflow:   TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 9,
-                                  color: AppColors.muted.withValues(alpha: 0.7), 
+                                  fontFamily:    'monospace',
+                                  fontSize:      9,
+                                  color:         AppColors.muted
+                                      .withValues(alpha: 0.7),
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -516,7 +571,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
             Positioned.fill(
               child: SecurityErrorWidget(
                 exception: scanState.apiException!,
-                onRetry: () => ref.read(scannerStateProvider.notifier).reset(),
+                onRetry: () =>
+                    ref.read(scannerStateProvider.notifier).reset(),
               ),
             ),
         ],
@@ -529,17 +585,21 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.panel,
-        title: const Text('🛡 System Architect', style: TextStyle(color: AppColors.arc)),
+        title: const Text('🛡 System Architect',
+            style: TextStyle(color: AppColors.arc)),
         content: const Text(
           'Quishing Guard v1.0\n\n'
-          'Designed, developed, and engineered entirely by Mohamed Abdelfattah for the 2026 Graduation Project.\n\n'
-          'Core Tech: Flutter, Python, Shannon Entropy Heuristics, Punycode & Homograph Detection.',
+          'Designed, developed, and engineered entirely by Mohamed Abdelfattah '
+          'for the 2026 Graduation Project.\n\n'
+          'Core Tech: Flutter, Python, Shannon Entropy Heuristics, '
+          'Punycode & Homograph Detection.',
           style: TextStyle(color: Colors.white, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Acknowledge', style: TextStyle(color: AppColors.amber)),
+            child: const Text('Acknowledge',
+                style: TextStyle(color: AppColors.amber)),
           ),
         ],
       ),
@@ -552,18 +612,24 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 class _TopChip extends StatelessWidget {
   final String icon, label;
   final Color color;
-  const _TopChip({required this.icon, required this.label, required this.color});
+  const _TopChip(
+      {required this.icon, required this.label, required this.color});
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: .1), 
+            color: color.withValues(alpha: .1),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withValues(alpha: .3))), 
+            border: Border.all(color: color.withValues(alpha: .3))),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(icon, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
-          Text(label, style: TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.w700, color: color))
+          Text(label,
+              style: TextStyle(
+                  fontFamily:  'monospace',
+                  fontSize:    12,
+                  fontWeight:  FontWeight.w700,
+                  color:       color))
         ]),
       );
 }
@@ -572,17 +638,25 @@ class _IconBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool active;
-  const _IconBtn({required this.icon, required this.onTap, this.active = false});
+  const _IconBtn(
+      {required this.icon, required this.onTap, this.active = false});
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-              color: active ? AppColors.amber.withValues(alpha: .15) : AppColors.panel.withValues(alpha: .8), 
-              shape: BoxShape.circle,
-              border: Border.all(color: active ? AppColors.amber.withValues(alpha: .4) : AppColors.rim)), 
-          child: Icon(icon, size: 18, color: active ? AppColors.amber : AppColors.muted),
+              color: active
+                  ? AppColors.amber.withValues(alpha: .15)
+                  : AppColors.panel.withValues(alpha: .8),
+              shape:  BoxShape.circle,
+              border: Border.all(
+                  color: active
+                      ? AppColors.amber.withValues(alpha: .4)
+                      : AppColors.rim)),
+          child: Icon(icon,
+              size:  18,
+              color: active ? AppColors.amber : AppColors.muted),
         ),
       );
 }
@@ -591,20 +665,34 @@ class _CtrlBtn extends StatelessWidget {
   final String icon, label;
   final VoidCallback onTap;
   final bool highlight;
-  const _CtrlBtn({required this.icon, required this.label, required this.onTap, this.highlight = false});
+  const _CtrlBtn(
+      {required this.icon,
+      required this.label,
+      required this.onTap,
+      this.highlight = false});
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-              color: highlight ? AppColors.arc.withValues(alpha: .1) : AppColors.panel.withValues(alpha: .9), 
+              color: highlight
+                  ? AppColors.arc.withValues(alpha: .1)
+                  : AppColors.panel.withValues(alpha: .9),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: highlight ? AppColors.arc.withValues(alpha: .35) : AppColors.rim)), 
+              border: Border.all(
+                  color: highlight
+                      ? AppColors.arc.withValues(alpha: .35)
+                      : AppColors.rim)),
           child: Column(children: [
             Text(icon, style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(fontFamily: 'monospace', fontSize: 10, color: highlight ? AppColors.arc : AppColors.muted, letterSpacing: 0.5))
+            Text(label,
+                style: TextStyle(
+                    fontFamily:    'monospace',
+                    fontSize:      10,
+                    color:         highlight ? AppColors.arc : AppColors.muted,
+                    letterSpacing: 0.5))
           ]),
         ),
       );
