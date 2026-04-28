@@ -98,12 +98,10 @@ def analyse():
                 "error":              str(e),
             }
 
-        # H-2 FIX: Always Re-check reputation against the FINAL destination!
-        # The shortener might have been trusted, but the final URL might be malicious.
-        if not allowlisted:
-            allowlisted = is_allowlisted(resolved_url)
-        if not blocklisted:
-            blocklisted = is_blocklisted(resolved_url)
+        # H-2 FIX UPDATE: We MUST reset the VIP status to the FINAL destination.
+        # If we keep the shortener's VIP status, it will zero out the score!
+        allowlisted = is_allowlisted(resolved_url)
+        blocklisted = is_blocklisted(resolved_url)
 
     # ── 4. Heuristic Analysis ─────────────────────────────────────────────────
     result_data = analyse_url(
