@@ -12,16 +12,33 @@ Token payload:
 
 Fixes applied:
   F-04  `admin_required` previously called jwt.decode() directly, duplicating
-        the logic already in verify_token().  This created maintenance drift
-        risk: if the algorithm, secret, or audience ever changed, only one
-        call site would be updated.
-        Fix: admin_required now delegates entirely to verify_token().
+        the logic already in verify_token(). This created maintenance drift
+        risk. Fix: admin_required now delegates entirely to verify_token().
+
+  H-4   JWT_SECRET configuration was silently ignored.
+        __init__.py correctly sets app.config["JWT_SECRET"] from the
+        JWT_SECRET environment variable (falling back to SECRET_KEY).
+        However, create_token() and verify_token() both read
+        app.config["SECRET_KEY"] directly.
+        Fix: both functions now read app.config["JWT_SECRET"] via a
+        helper function, allowing separated JWT and session secrets.
 """
 from __future__ import annotations
 import jwt
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from flask import request, jsonify, current_app
+
+
+def _jwt_secret() -> str:
+    """
+    H-4 FIX: Single authoritative accessor for the JWT signing secret.
+
+    Reads JWT_SECRET (set by __init__.py from the JWT_SECRET env var,
+    falling back to SECRET_KEY). Using a dedicated helper ensures both
+    create_token() and verify_token() always use the same key.
+    """
+    return current_app.config["JWT_SECRET"]
 
 
 def create_token() -> tuple[str, int]:
@@ -33,7 +50,8 @@ def create_token() -> tuple[str, int]:
         "iat": datetime.now(timezone.utc),
         "exp": datetime.now(timezone.utc) + timedelta(seconds=expiry_secs),
     }
-    token = jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm="HS256")
+    # H-4 FIX: Use _jwt_secret() instead of SECRET_KEY directly.
+    token = jwt.encode(payload, _jwt_secret(), algorithm="HS256")
     return token, expiry_secs
 
 
@@ -48,9 +66,10 @@ def _extract_token() -> str | None:
 def verify_token(token: str) -> dict | None:
     """Decode and verify a JWT. Returns the payload dict or None."""
     try:
+        # H-4 FIX: Use _jwt_secret() instead of SECRET_KEY directly.
         return jwt.decode(
             token,
-            current_app.config["SECRET_KEY"],
+            _jwt_secret(),
             algorithms=["HS256"],
         )
     except jwt.ExpiredSignatureError:
