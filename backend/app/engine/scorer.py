@@ -391,8 +391,11 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "hop_count":          trace_data.get("hop_count", 0),
         "is_allowlisted":     allowlisted,
         "is_blocklisted":     blocklisted,
+        "is_trusted":         is_trusted,  # <--- ADDED THIS FIELD
         "checks":             checks,
+        # UPDATED: Smarter assessment text for 0-score unknown links
         "overall_assessment": "Trusted high-traffic domain." if is_trusted and risk_score < 30
+                              else "Unverified infrastructure. Proceed with caution." if not is_trusted and risk_score < 30
                               else f"Analysis suggests {final_label.upper()}.",
         "ai_analysis":        ai_text,
     }
