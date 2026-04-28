@@ -3,28 +3,18 @@ routes/analyse.py — Master API Endpoint
 ==========================================
 Main analysis endpoint. Coordinates Resolver, Reputation, and Scorer.
 
-Fixes applied (v2.7.0):
-  H-1  Pillar #7 (HTML Evasion) was completely non-functional for this
-        endpoint. trace_data_for_scorer["meta_refresh_found"] was hard-coded
-        to False, meaning no scanned URL could ever trigger the 30-point
-        HTML Evasion check through the main /analyse route.
-
-        Root cause: the meta-refresh check lived inside trace_redirects()
-        in scorer.py. After the C-1 refactor that eliminated the duplicate
-        resolve() call, analyse.py built its own trace_data dict manually
-        and simply forgot to run the HTML check.
-
-        Fix: after a successful resolve(), call check_meta_refresh() from
-        scorer.py on the resolved URL and store the result in trace_data.
-        The HTML check is skipped for allowlisted/blocklisted URLs (the
-        verdict is already final and the network call is unnecessary).
+Fixes applied:
+  H-1: HTML Evasion fixed (meta-refresh checking active).
+  H-2: Shortener Bypass fixed — Forces resolution of known shorteners 
+       even if they are highly trusted (Tranco Top 100k) to expose the payload.
 """
 from __future__ import annotations
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, current_app
+import tldextract
 
 from ..engine.resolver   import resolve
-from ..engine.scorer     import analyse_url, check_meta_refresh   # H-1 FIX
+from ..engine.scorer     import analyse_url, check_meta_refresh, KNOWN_SHORTENERS
 from ..engine.reputation import is_allowlisted, is_blocklisted
 from ..utils.validators  import validate_url_payload
 from ..models.db_models  import ScanLog, generate_scan_id
@@ -52,9 +42,15 @@ def analyse():
     allowlisted = is_allowlisted(raw_url)
     blocklisted = is_blocklisted(raw_url)
 
+    # H-2 FIX: Detect if it's a shortener. 
+    # Shorteners MUST be resolved to expose the hidden payload, even if the shortener domain is trusted.
+    ext = tldextract.extract(raw_url)
+    domain_to_check = f"{ext.domain}.{ext.suffix}".lower()
+    is_shortener = any(s in domain_to_check for s in KNOWN_SHORTENERS)
+
     # ── 3. Resolve redirects ───────────────────────────────────────────────────
-    if allowlisted or blocklisted:
-        # Verdict already final — no network calls needed.
+    # Skip resolving ONLY if it's allowlisted/blocklisted AND NOT a shortener.
+    if (allowlisted or blocklisted) and not is_shortener:
         resolved_url   = raw_url
         redirect_chain = []
         hop_count      = 0
@@ -63,7 +59,7 @@ def analyse():
             "shortener_count":    0,
             "final_url":          raw_url,
             "redirect_chain":     [],
-            "meta_refresh_found": False,   # Skip HTML check for known URLs
+            "meta_refresh_found": False,   
             "error":              None,
         }
     else:
@@ -77,23 +73,14 @@ def analyse():
             hop_count      = res.hop_count
 
             # H-1 FIX: Run the HTML meta-refresh check on the final destination.
-            #
-            # Previously this field was always False because analyse.py built its
-            # own trace_data dict and never called check_meta_refresh().  Only
-            # scan_image.py (which calls trace_redirects()) ever populated it.
-            # Pillar #7 was therefore silent for every URL scanned via this route.
-            #
-            # check_meta_refresh() fetches only the first 10 KB of the landing
-            # page — negligible overhead compared to the resolve() chain above.
             meta_refresh = check_meta_refresh(resolved_url) if not res.error else False
 
             trace_data_for_scorer = {
                 "hop_count":          res.hop_count,
-                # FIX B-10 & C-1: Guard shortener_count
                 "shortener_count":    getattr(res, "shortener_count", 0),
                 "final_url":          res.resolved_url,
                 "redirect_chain":     res.redirect_chain,
-                "meta_refresh_found": meta_refresh,          # H-1 FIX
+                "meta_refresh_found": meta_refresh,          
                 "error":              res.error,
             }
 
@@ -111,7 +98,8 @@ def analyse():
                 "error":              str(e),
             }
 
-        # Re-check reputation for final destination if not caught initially
+        # H-2 FIX: Always Re-check reputation against the FINAL destination!
+        # The shortener might have been trusted, but the final URL might be malicious.
         if not allowlisted:
             allowlisted = is_allowlisted(resolved_url)
         if not blocklisted:
