@@ -1,6 +1,6 @@
 """
-entropy.py — Shannon Entropy Engine
-====================================
+entropy.py — Shannon Entropy Engine (v2.7.3)
+=============================================
 Implements §2.4.1 of the project report:
   H(X) = -∑ p(xᵢ) × log₂(p(xᵢ))
 
@@ -34,10 +34,10 @@ import collections
 from dataclasses import dataclass
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
-MIN_LABEL_LEN = 6     # short labels (e.g. "io", "api") are excluded
-NORM_SAFE     = 0.85  # below → human-chosen
-NORM_WARN     = 0.92  # above → likely DGA
-DIGIT_RATIO_THRESHOLD = 0.40 # F-06: raised from 0.30 to reduce brand false positives
+MIN_LABEL_LEN         = 6     # short labels (e.g. "io", "api") are excluded
+NORM_SAFE             = 0.85  # below → human-chosen
+NORM_WARN             = 0.92  # above → likely DGA
+DIGIT_RATIO_THRESHOLD = 0.40  # F-06: raised from 0.30 to reduce brand false positives
 
 @dataclass
 class EntropyResult:
