@@ -1,11 +1,17 @@
 """
-app/models/db_models.py — SQLAlchemy Table Definitions
-=======================================================
+app/models/db_models.py — SQLAlchemy Table Definitions (v2.7.3)
+================================================================
 Three tables replace the old flat JSON files:
-
   BlocklistEntry  replaces  data/blocklist.json
   AllowlistEntry  replaces  data/allowlist.json
   ScanLog         new — audit trail of every analysis
+
+Fixes applied (Batch 2):
+  RTE-14  ScanLog.raw_url and ScanLog.resolved_url changed from unbounded
+          Text columns to String(4296) — matching the ISO 18004 QR payload
+          limit enforced by validators.py. Without a DB-level constraint,
+          a bypass of the validator (or a future limit increase) could write
+          arbitrarily large strings to the audit log table.
 
 Thread-safety note: because all writes go through SQLAlchemy
 transactions, this is safe under Gunicorn multi-worker deployments.
@@ -99,8 +105,14 @@ class ScanLog(db.Model):
 
     # Fixed: Added secure default generator for string primary key
     id           = db.Column(db.String(16), primary_key=True, default=generate_scan_id)
-    raw_url      = db.Column(db.Text, nullable=False)
-    resolved_url = db.Column(db.Text)
+
+    # AUDIT FIX [RTE-14]: Changed from unbounded Text to String(4296) to
+    # enforce the same length limit at the DB layer as validators.py enforces
+    # at the application layer. Defence-in-depth: a validator bypass cannot
+    # write unbounded data to the audit log.
+    raw_url      = db.Column(db.String(4296), nullable=False)
+    resolved_url = db.Column(db.String(4296))
+
     risk_score   = db.Column(db.Integer, default=0)
     risk_label   = db.Column(db.String(20))
     top_threat   = db.Column(db.String(50))
