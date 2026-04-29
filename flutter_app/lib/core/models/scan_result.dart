@@ -1,3 +1,12 @@
+// lib/core/models/scan_result.dart
+//
+// Fixes applied (Batch 3):
+//   FLT-09  Added isTrusted field parsed from the backend's top-level
+//           'is_trusted' key. SafePreviewScreen previously derived trust
+//           by string-matching the 'reputation' pillar name in the checks
+//           array — fragile coupling that breaks silently if the backend
+//           renames the pillar. Now uses this dedicated parsed field instead.
+
 import 'package:uuid/uuid.dart';
 
 // ── SecurityCheck ────────────────────────────────────────────────────────────
@@ -93,10 +102,13 @@ class ScanResult {
     required this.hopCount,
     required this.scannedAt,
     required this.overallAssessment,
-    required this.aiAnalysis, // ✅ Added AI Analysis
+    required this.aiAnalysis,
     this.topThreat,
     this.isAllowlisted = false,
     this.isBlocklisted = false,
+    // AUDIT FIX [FLT-09]: Dedicated trust field replaces pillar-name string
+    // matching in SafePreviewScreen. Parsed from backend 'is_trusted' key.
+    this.isTrusted = false,
     this.reported = false,
   });
 
@@ -110,10 +122,11 @@ class ScanResult {
   final int hopCount;
   final DateTime scannedAt;
   final String overallAssessment;
-  final String aiAnalysis; // ✅ Added AI Analysis field
+  final String aiAnalysis;   // ✅ Added AI Analysis field
   final String? topThreat;
   final bool isAllowlisted;
   final bool isBlocklisted;
+  final bool isTrusted;      // FLT-09
   bool reported;
 
   // Convenience getters for UI logic
@@ -147,7 +160,7 @@ class ScanResult {
           parsedChecks.add(SecurityCheck(
             name:      'info',
             label:     'Analysis Detail',
-            status:    'INFO', // Kept 'INFO' from your code vs Claude's 'SAFE' for legacy string info
+            status:    'INFO', 
             triggered: false,
             score:     0,
             message:   item,
@@ -167,9 +180,14 @@ class ScanResult {
       topThreat:   j['top_threat']?.toString(),
       isAllowlisted: j['is_allowlisted'] == true,
       isBlocklisted: j['is_blocklisted'] == true,
+      // AUDIT FIX [FLT-09]: Parse dedicated trust field from backend response.
+      // scorer.py already returns 'is_trusted' in the top-level response dict
+      // (confirmed in Batch 1 scorer.py). This field is now the authoritative
+      // source for trust state — not the checks array pillar name.
+      isTrusted:   j['is_trusted'] == true,
       hopCount:    (j['hop_count'] as num?)?.toInt() ?? 0,
       overallAssessment: j['overall_assessment']?.toString() ?? '',
-      aiAnalysis:  j['ai_analysis']?.toString() ?? 'No AI analysis provided.', // ✅ Parse AI data
+      aiAnalysis:  j['ai_analysis']?.toString() ?? 'No AI analysis provided.',
       scannedAt:   j['analysed_at'] != null
           ? DateTime.tryParse(j['analysed_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -195,13 +213,13 @@ class ScanResult {
         'top_threat':       topThreat,
         'is_allowlisted':   isAllowlisted,
         'is_blocklisted':   isBlocklisted,
+        'is_trusted':       isTrusted,   // FLT-09: persist to history
         'hop_count':        hopCount,
         'overall_assessment': overallAssessment,
-        'ai_analysis':      aiAnalysis, // ✅ Ensured AI Analysis is saved to history persistence
+        'ai_analysis':      aiAnalysis,  // ✅ Ensured AI Analysis is saved to history persistence
         'analysed_at':      scannedAt.toIso8601String(),
         'redirect_chain':   redirectChain,
         'checks':           checks.map((c) => c.toJson()).toList(),
         'reported':         reported,
       };
 }
-
