@@ -1,9 +1,21 @@
-"""run.py — Entry point for Quishing Guard API v2."""
+"""
+run.py — Entry point for Quishing Guard API v2 (v2.7.3)
+========================================================
+Fixes applied (Batch 2):
+  RTE-09  Removed unused `analyse_url` import. Importing scorer.py at startup
+          created the ThreadPoolExecutor, tldextract state, and logging
+          handlers outside the app context — unnecessary side effects for
+          a symbol that was never called in this module.
+  RTE-12  All f-string log calls replaced with %-style formatting. f-strings
+          evaluate immediately even when the log level is suppressed, and they
+          prevent the JSON formatter from capturing structured fields. The
+          logging module's lazy evaluation only works with %-style args.
+"""
 import os
-from app import create_app, db  # 👈 Added 'db' here
+from app import create_app
+from app.database import db
 from app.logger import get_logger
-from app.engine.reputation import seed_database 
-from app.engine.scorer import analyse_url
+from app.engine.reputation import seed_database
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -34,12 +46,15 @@ try:
         seed_database()
         log.info("✅ Database seeded successfully.")
 except Exception as e:
-    log.error(f"⚠️ Database seed failed: {e}")
+    # AUDIT FIX [RTE-12]: %-style formatting — not f-string — for lazy eval.
+    log.error("⚠️ Database seed failed: %s", e)
 
 # ── 2. SECURITY WARNINGS (Runs on Render/Gunicorn boot) ──
+# Note: __init__.py raises RuntimeError on weak SECRET_KEY before we get here.
+# This check covers the ADMIN_PASSWORD as a belt-and-suspenders fallback.
 if os.environ.get("ADMIN_PASSWORD", "change-me") == "change-me":
-    log.warning("❌ SECURITY ALERT: ADMIN_PASSWORD is set to default!")
-    log.warning("Please set a secure ADMIN_PASSWORD in your Render environment variables.")
+    log.critical("❌ SECURITY ALERT: ADMIN_PASSWORD is set to default 'change-me'. "
+                 "Please set a secure ADMIN_PASSWORD in your Render environment variables.")
 
 # ── 3. LOCAL DEVELOPMENT EXECUTION (Ignored by Render) ──
 if __name__ == "__main__":
@@ -49,7 +64,8 @@ if __name__ == "__main__":
     
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     
-    log.info(f"🚀 Starting Quishing Guard API v2 locally on port {port}")
-    log.info(f"🛠️ Debug mode: {debug}")
+    # AUDIT FIX [RTE-12]: %-style formatting.
+    log.info("🚀 Starting Quishing Guard API v2 locally on port %d", port)
+    log.info("🛠️ Debug mode: %s", debug)
     
     app.run(host="0.0.0.0", port=port, debug=debug)
