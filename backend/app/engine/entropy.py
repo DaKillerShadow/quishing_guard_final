@@ -19,6 +19,12 @@ Fixes applied:
         Fix: raise digit_ratio threshold to > 0.40 AND require entropy > 2.8
         (the entropy guard was already in place from FIX M-3; we tighten
         the ratio threshold here to further reduce false positives).
+  C-2   Alphabet-size H_max constant (not length-dependent).
+  ENG-10 _clean_label() integrated as secondary DGA signal instead of
+         being dead code. A domain is only flagged if BOTH the raw
+         label entropy AND the cleaned (digits/hyphens stripped) label
+         entropy are elevated. This reduces false-positives on purely
+         numeric domains like '365scores'.
 """
 
 from __future__ import annotations
@@ -86,17 +92,26 @@ def dga_score(sld: str) -> EntropyResult:
     H_MAX_ABSOLUTE = math.log2(_ALPHABET_SIZE)  # ≈ 5.170 bits — constant, not length-dependent
     h_norm = entropy / H_MAX_ABSOLUTE            # FIX C-2: correct normalisation
 
+    # AUDIT FIX [ENG-10]: Integrate _clean_label() as secondary signal.
+    # Compute entropy on the alphanumeric-only version of the label.
+    # A label is only flagged as DGA if both its raw entropy AND its
+    # cleaned-label entropy are elevated. This prevents numeric brand
+    # names (e.g. "365scores", "mp3") from being false-positived when
+    # digit-heavy content inflates raw entropy above the threshold.
+    cleaned        = _clean_label(label)
+    entropy_clean  = _shannon(cleaned) if len(cleaned) >= 4 else 0.0
+
     is_dga = False
     is_suspicious = False
 
     # --- THE FIX: Smarter Evaluation ---
     
     # Check 1: Absolute high entropy (catches long random strings)
-    if entropy > 3.5:
+    if entropy > 3.5 and entropy_clean > 3.0:  # ENG-10: dual-signal gate
         is_dga = True
         
     # Check 2: Maxed-out entropy for short strings (Catches x7z9q2mwpb)
-    elif domain_length >= 8 and entropy >= 3.2:
+    elif domain_length >= 8 and entropy >= 3.2 and entropy_clean >= 2.8:  # ENG-10
         is_dga = True
         
     # Check 3: High digit/consonant ratio (Catches typical DGA behavior)
