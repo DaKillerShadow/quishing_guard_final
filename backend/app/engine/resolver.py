@@ -301,4 +301,3 @@ def _follow_chain(
         meta_refresh_found=meta_refresh_found,
         hit_limit=True,
     )
-
