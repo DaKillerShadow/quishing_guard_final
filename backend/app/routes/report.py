@@ -1,24 +1,30 @@
 """
-routes/report.py — POST /api/v1/report
-========================================
+routes/report.py — POST /api/v1/report (v2.7.3)
+================================================
 User-facing endpoint. Queues a domain for admin review.
 
-SECURITY CHANGE from v1:
-  Submissions are stored with is_approved=False and only become active
-  after an admin approves them via the dashboard. Users can no longer
-  instantly affect the live blocklist.
+Submissions are stored with is_approved=False and only become active
+after an admin approves them via the dashboard. Users cannot instantly
+affect the live blocklist.
 
-Rate limit: 10 per minute per IP.
+Fixes applied (Batch 2):
+  RTE-05  url_prefix removed from Blueprint() constructor — single source
+          of truth is register_blueprint() in __init__.py.
+  RTE-06  add_to_blocklist() return value checked. After Batch 1 fix ENG-18
+          makes it return bool, ignoring the value meant DB write failures
+          were silently swallowed and the user received a false HTTP 200
+          "queued" confirmation. Now returns HTTP 500 on failure.
 """
 from __future__ import annotations
 from flask import Blueprint, request, jsonify
 
 from ..engine.reputation import add_to_blocklist, _get_etld1
 from ..utils.validators  import validate_url_payload
-from ..limiter           import limiter, get_real_client_ip # Use our proxy-safe IP helper
+from ..limiter           import limiter, get_real_client_ip
 from ..logger            import get_logger
 
-bp  = Blueprint("report", __name__, url_prefix="/api/v1")
+# AUDIT FIX [RTE-05]: url_prefix removed from constructor.
+bp  = Blueprint("report", __name__)
 log = get_logger("report")
 
 
@@ -32,24 +38,31 @@ def report():
     if not url:
         return jsonify({"error": "Missing required field: 'url'"}), 400
 
-    # 1. Validate the payload (ensure it's a URL and not a WIFI/SMS string)
     ok, msg = validate_url_payload(url)
     if not ok:
         return jsonify({"error": msg}), 422
 
-    # 2. Standardize the domain/host extraction
-    # We use our engine's helper to ensure the report matches our detection logic
     host = _get_etld1(url)
     if not host:
-        return jsonify({"error": "Could not extract a valid domain from the provided URL"}), 422
+        return jsonify({
+            "error": "Could not extract a valid domain from the provided URL"
+        }), 422
 
-    # 3. Queue for admin review (is_approved=False is handled inside add_to_blocklist)
-    add_to_blocklist(host, reason=reason)
-    
-    # 4. Log the report with the real client IP for abuse tracking
+    # AUDIT FIX [RTE-06]: Check the bool return value from add_to_blocklist().
+    # Before this fix, a DB write failure returned HTTP 200 "queued" — giving
+    # the user false confirmation that their report was received.
+    success = add_to_blocklist(host, reason=reason)
+    if not success:
+        log.error("Failed to queue domain for review: %s", host)
+        return jsonify({
+            "error": "Failed to queue report — please try again later."
+        }), 500
+
     client_ip = get_real_client_ip()
-    log.info("Domain queued for review",
-             extra={"domain": host, "reason": reason, "ip": client_ip})
+    log.info(
+        "Domain queued for review",
+        extra={"domain": host, "reason": reason, "ip": client_ip},
+    )
 
     return jsonify({
         "status":  "queued",
