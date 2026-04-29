@@ -39,7 +39,11 @@ class _JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         doc: dict = {
-            "ts":     datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            # AUDIT FIX [ENG-16]: Use record.created (the LogRecord's authoritative
+            # event timestamp) instead of datetime.now() (the formatter's wall clock
+            # at format-time). Under load these can differ by meaningful milliseconds.
+            "ts":     datetime.fromtimestamp(record.created, tz=timezone.utc)
+                              .strftime("%Y-%m-%dT%H:%M:%SZ"),
             "level":  record.levelname,
             "module": record.module,
             "msg":    record.getMessage(),
@@ -72,7 +76,9 @@ class _ColourFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         colour = self._COLOURS.get(record.levelname, "")
         prefix = f"{colour}[{record.levelname[0]}]{self._RESET}"
-        ts     = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        
+        # Use record.created here as well for consistency with the JSON formatter
+        ts     = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%H:%M:%S")
         formatted_msg = f"{prefix} {ts}  {record.module:<18}  {record.getMessage()}"
         
         # 👈 Fixed: Re-attach the stack trace for local debugging
@@ -131,3 +137,4 @@ def get_logger(name: str | None = None) -> logging.Logger:
     if name:
         return _logger.getChild(name)
     return _logger
+
