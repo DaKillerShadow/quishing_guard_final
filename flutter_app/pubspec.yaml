@@ -32,6 +32,9 @@ dependencies:
   # ── Local Storage ────────────────────────────────────────────────────
   shared_preferences: 2.3.2
 
+  # ── Secure Storage (AUDIT FIX FLT-06) ────────────────────────────────
+  flutter_secure_storage: 9.2.2
+
   # ── UI ────────────────────────────────────────────────────────────────
   url_launcher: 6.3.0
   share_plus: 9.0.0
