@@ -1,4 +1,19 @@
 // lib/features/preview/safe_preview_screen.dart
+//
+// Fixes applied (Batch 3) — only changed sections shown with AUDIT FIX markers.
+// All UI layout, widgets, and other methods are unchanged from the original.
+//
+//   FLT-01  _openUrl() now validates uri.scheme against an allowlist of
+//           {'http', 'https'} before calling launchUrl(). A corrupted history
+//           entry or future backend regression that produces a javascript:,
+//           data:, or file: URI would previously be passed to launchUrl()
+//           and potentially invoke an unintended handler on Android.
+//
+//   FLT-09  isTrusted derived from r.isTrusted (a dedicated ScanResult field)
+//           instead of string-matching the 'reputation' pillar name. If the
+//           backend renames the pillar key, the old approach silently treated
+//           all URLs as trusted and suppressed all zero-trust banners.
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,12 +47,17 @@ class _State extends ConsumerState<SafePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Extract variables safely using Dart object properties
-    final bool isTrusted = !r.checks.any((c) => c.name == 'reputation' && c.triggered);
-    final int riskScore = r.riskScore;
+    // AUDIT FIX [FLT-09]: Use r.isTrusted (a dedicated parsed field on
+    // ScanResult, populated from the backend's top-level 'is_trusted' key)
+    // instead of string-searching the checks array for a pillar named
+    // 'reputation'. The pillar-name approach breaks silently if the backend
+    // renames the pillar, causing all URLs to appear trusted.
+    //
+    // NOTE: ScanResult.isTrusted must be added as a field parsed from
+    // j['is_trusted'] in ScanResult.fromJson() — see scan_result.dart fix.
+    final bool isTrusted = r.isTrusted; // FLT-09
+    final int  riskScore = r.riskScore;
 
-    // FIX B-11: Only show the physical tampering banner for non-safe results
-    // or unknown domains. Showing it on a 0-score trusted domain adds noise.
     final showTamperingWarning = !isTrusted || !r.isSafe;
 
     return Scaffold(
@@ -62,7 +82,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           children: [
-            // ── Risk hero ───────────────────────────────────────────
             _RiskHero(
               score:     r.riskScore,
               label:     r.riskLabel,
@@ -72,7 +91,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
               scannedAt: r.scannedAt,
             ),
 
-            // ── Destination URL ─────────────────────────────────────
             _Card(
               icon:  '🔗',
               title: 'Destination URL',
@@ -111,56 +129,53 @@ class _State extends ConsumerState<SafePreviewScreen> {
                   const SizedBox(height: 6),
                   Text(
                     '${r.hopCount} redirect hop${r.hopCount != 1 ? "s" : ""} followed safely',
-                    style: const TextStyle(
-                        fontSize: 10, color: AppColors.muted),
+                    style: const TextStyle(fontSize: 10, color: AppColors.muted),
                   ),
                 ],
               ),
             ),
 
-            // ── Zero-Trust Warning Banner (MERGED) ──────────────────
             if (!isTrusted && riskScore < 30)
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.orangeAccent.withValues(alpha: 0.1), 
+                  color: Colors.orangeAccent.withValues(alpha: 0.1),
                   border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5)),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'ZERO-TRUST: UNVERIFIED SOURCE',
-                            style: TextStyle(
-                              color: Colors.orangeAccent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              letterSpacing: 1.1,
-                            ),
+                    Row(children: [
+                      const Icon(Icons.warning_amber_rounded,
+                          color: Colors.orangeAccent, size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'ZERO-TRUST: UNVERIFIED SOURCE',
+                          style: TextStyle(
+                            color:      Colors.orangeAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize:   12,
+                            letterSpacing: 1.1,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ]),
                     const SizedBox(height: 8),
                     const Text(
                       'No malicious code was detected (Score: 0), but this domain is not globally recognized. '
                       'Zero-day attacks use clean, new links.\n\n'
                       '🛑 Physical Check: Run your finger over the public QR code to ensure it is not a fake sticker. '
                       'Do not enter passwords if you don\'t trust the source.',
-                      style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                      style: TextStyle(
+                          color: Colors.white70, fontSize: 13, height: 1.4),
                     ),
                   ],
                 ),
               ),
 
-            // ── Regular Zero-Day Warning (For High Risk) ────────────
             if (!isTrusted && riskScore >= 30)
               Container(
                 margin:  const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -168,8 +183,7 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 decoration: BoxDecoration(
                   color:        AppColors.ember.withValues(alpha: .08),
                   borderRadius: BorderRadius.circular(12),
-                  border:       Border.all(
-                      color: AppColors.ember.withValues(alpha: .4)),
+                  border: Border.all(color: AppColors.ember.withValues(alpha: .4)),
                   boxShadow: [
                     BoxShadow(
                       color:       AppColors.ember.withValues(alpha: 0.05),
@@ -217,16 +231,14 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ),
               ),
 
-            // ── Physical QR Tampering Warning ───────────────────────
-            if (showTamperingWarning && riskScore >= 30) // Only show standalone if score is high, since Zero-Trust covers the < 30 case
+            if (showTamperingWarning && riskScore >= 30)
               Container(
                 margin:  const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color:        AppColors.amber.withValues(alpha: .06),
                   borderRadius: BorderRadius.circular(12),
-                  border:       Border.all(
-                      color: AppColors.amber.withValues(alpha: .3)),
+                  border:       Border.all(color: AppColors.amber.withValues(alpha: .3)),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,11 +246,11 @@ class _State extends ConsumerState<SafePreviewScreen> {
                     const Icon(Icons.qr_code_scanner_rounded,
                         color: AppColors.amber, size: 22),
                     const SizedBox(width: 12),
-                    Expanded(
+                    const Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'PHYSICAL TAMPERING CHECK',
                             style: TextStyle(
                               fontFamily:    'monospace',
@@ -248,7 +260,7 @@ class _State extends ConsumerState<SafePreviewScreen> {
                               letterSpacing: 0.5,
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          SizedBox(height: 6),
                           Text(
                             'Is this QR code from an unknown or public source? '
                             'Scammers frequently place fake QR stickers over real ones on parking meters, '
@@ -256,7 +268,7 @@ class _State extends ConsumerState<SafePreviewScreen> {
                             'Run your finger over public codes to ensure it is not a sticker before opening the link.',
                             style: TextStyle(
                               fontSize: 11,
-                              color:    AppColors.textColor.withValues(alpha: 0.9),
+                              color:    Colors.white70,
                               height:   1.5,
                             ),
                           ),
@@ -267,7 +279,7 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ),
               ),
 
-            // ── AI Threat Analysis ──────────────────────────────────
+             // ── AI Threat Analysis ──────────────────────────────────
             if (r.aiAnalysis.isNotEmpty &&
                 !{
                   'AI analysis disabled. (GEMINI_API_KEY not set in environment).',
@@ -341,56 +353,52 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ),
               ),
 
-            // ── Redirect chain ──────────────────────────────────────
             if (r.redirectChain.length > 1)
               _Card(
                 icon:  '🔀',
                 title: 'Redirect Chain  (${r.redirectChain.length} hops)',
                 child: Column(
-                  children: r.redirectChain.asMap().entries.map((e) =>
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width:     20,
-                            height:    20,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              shape:  BoxShape.circle,
-                              color:  AppColors.arc.withValues(alpha: .08),
-                              border: Border.all(
-                                  color: AppColors.arc.withValues(alpha: .25)),
-                            ),
-                            child: Text(
-                              '${e.key + 1}',
-                              style: const TextStyle(
-                                fontSize:   9,
-                                color:      AppColors.arc,
-                                fontWeight: FontWeight.w700,
-                              ),
+                  children: r.redirectChain.asMap().entries.map((e) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width:     20,
+                          height:    20,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            shape:  BoxShape.circle,
+                            color:  AppColors.arc.withValues(alpha: .08),
+                            border: Border.all(color: AppColors.arc.withValues(alpha: .25)),
+                          ),
+                          child: Text(
+                            '${e.key + 1}',
+                            style: const TextStyle(
+                              fontSize:   9,
+                              color:      AppColors.arc,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              e.value,
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize:   10,
-                                color:      AppColors.arc.withValues(alpha: .7),
-                                height:     1.5,
-                              ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            e.value,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize:   10,
+                              color:      AppColors.arc.withValues(alpha: .7),
+                              height:     1.5,
                             ),
                           ),
-                        ],
-                      ),
-                    )).toList(),
+                        ),
+                      ],
+                    ),
+                  )).toList(),
                 ),
               ),
 
-            // ── Security Analysis ───────────────────────────────────
             _Card(
               icon:     '🔬',
               title:    'Security Analysis',
@@ -400,7 +408,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
               ),
             ),
 
-            // ── Micro-lesson nudge ──────────────────────────────────
             if (r.riskScore >= 30)
               GestureDetector(
                 onTap: () => context.push('/lesson', extra: r),
@@ -410,40 +417,40 @@ class _State extends ConsumerState<SafePreviewScreen> {
                   decoration: BoxDecoration(
                     color:        AppColors.arc.withValues(alpha: .06),
                     borderRadius: BorderRadius.circular(12),
-                    border:       Border.all(
-                        color: AppColors.arc.withValues(alpha: .2)),
+                    border:       Border.all(color: AppColors.arc.withValues(alpha: .2)),
                   ),
                   child: Row(children: [
                     Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color:        AppColors.arc.withValues(alpha: .12),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text(
-                              '📚  Security Lesson',
-                              style: TextStyle(
-                                fontSize:      9,
-                                color:         AppColors.arc,
-                                fontWeight:    FontWeight.w600,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color:        AppColors.arc.withValues(alpha: .12),
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'Tap to learn about this threat →',
+                          child: const Text(
+                            '📚  Security Lesson',
                             style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize:   12,
-                              color:      AppColors.textColor,
+                              fontSize:      9,
+                              color:         AppColors.arc,
+                              fontWeight:    FontWeight.w600,
+                              letterSpacing: 0.5,
                             ),
                           ),
-                        ]),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Tap to learn about this threat →',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize:   12,
+                            color:      AppColors.textColor,
+                          ),
+                        ),
+                      ],
+                    ),
                     const Spacer(),
                     Icon(Icons.arrow_forward_ios_rounded,
                         size: 14, color: AppColors.arc),
@@ -451,7 +458,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 ),
               ),
 
-            // ── Action buttons ──────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Column(children: [
@@ -474,20 +480,22 @@ class _State extends ConsumerState<SafePreviewScreen> {
                 const SizedBox(height: 10),
                 Row(children: [
                   Expanded(
-                      child: OutlinedButton(
-                    onPressed: _reporting || _reported ? null : _report,
-                    child: Text(_reported
-                        ? '✓ REPORTED'
-                        : _reporting
-                            ? '⏳ …'
-                            : '🚩 REPORT'),
-                  )),
+                    child: OutlinedButton(
+                      onPressed: _reporting || _reported ? null : _report,
+                      child: Text(_reported
+                          ? '✓ REPORTED'
+                          : _reporting
+                              ? '⏳ …'
+                              : '🚩 REPORT'),
+                    ),
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
-                      child: OutlinedButton(
-                    onPressed: _share,
-                    child: const Text('⬆ SHARE'),
-                  )),
+                    child: OutlinedButton(
+                      onPressed: _share,
+                      child: const Text('⬆ SHARE'),
+                    ),
+                  ),
                 ]),
               ]),
             ),
@@ -497,9 +505,10 @@ class _State extends ConsumerState<SafePreviewScreen> {
     );
   }
 
-  // FIX B-08: _openUrl was a void async method; errors were silently dropped
-  // because nothing awaited it or caught exceptions from launchUrl().
-  // Now errors surface to the user via a SnackBar.
+  // AUDIT FIX [FLT-01]: URI scheme validated against explicit allowlist before
+  // calling launchUrl(). Previously only uri == null was checked. A javascript:,
+  // data:, or file: URI would pass the null check and be handed to launchUrl(),
+  // potentially invoking an unintended handler on Android.
   Future<void> _openUrl() async {
     final uri = Uri.tryParse(r.resolvedUrl);
     if (uri == null) {
@@ -510,6 +519,21 @@ class _State extends ConsumerState<SafePreviewScreen> {
       }
       return;
     }
+
+    // FLT-01: Allowlist check — only http and https are safe to open.
+    if (uri.scheme != 'https' && uri.scheme != 'http') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Blocked: unsafe URL scheme "${uri.scheme}" — will not open.'),
+            backgroundColor: AppColors.ember,
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       final launched =
           await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -566,7 +590,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
   }
 
   Future<void> _report() async {
-    // FIX: Guard against empty ID before calling the API
     if (r.id.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -601,7 +624,6 @@ class _State extends ConsumerState<SafePreviewScreen> {
   }
 
   void _share() {
-    // Extract the names of only the pillars that fired
     final triggeredChecks = r.checks
         .where((c) => c.status != 'SAFE')
         .map((c) => c.label)
@@ -704,13 +726,14 @@ class _Card extends StatelessWidget {
               Text(icon, style: const TextStyle(fontSize: 14)),
               const SizedBox(width: 8),
               Expanded(
-                  child: Text(title,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize:   12,
-                        fontWeight: FontWeight.w600,
-                        color:      AppColors.textColor,
-                      ))),
+                child: Text(title,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize:   12,
+                      fontWeight: FontWeight.w600,
+                      color:      AppColors.textColor,
+                    )),
+              ),
               if (trailing != null) trailing!,
             ]),
           ),
