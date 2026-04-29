@@ -1,4 +1,12 @@
-"""validators.py — Request input validation."""
+"""
+validators.py — Request input validation (v2.7.1)
+
+Fixes applied:
+  ENG-17  MAX_URL_LEN reduced from 8192 to 4296 to match the ISO 18004
+          QR code standard maximum for alphanumeric payloads. Accepting
+          8192 bytes allowed payloads that could never originate from a
+          real QR code, widening the fuzzing surface against the parser.
+"""
 import re
 from urllib.parse import urlparse
 
@@ -10,9 +18,9 @@ _NON_URL_PREFIXES = (
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
-# AUDIT FIX [ENG-17]: QR code standard ISO 18004 limits alphanumeric payloads
-# to 4,296 characters. Accepting 8,192 bytes allowed non-QR-origin payloads
-# to reach the parser, widening the fuzzing surface unnecessarily.
+# AUDIT FIX [ENG-17]: ISO 18004 limits alphanumeric QR payloads to 4,296
+# characters. Accepting 8,192 bytes permitted non-QR-origin payloads to
+# reach the downstream URL parser, unnecessarily widening the attack surface.
 MAX_URL_LEN = 4296  # ISO 18004 maximum alphanumeric QR payload length
 
 
