@@ -78,6 +78,8 @@ _CRITICAL_OVERRIDE_FLOORS = {
 
 def _call_gemini(raw_url: str, resolved_url: str) -> str:
     """Blocking Gemini call — intended to run inside _AI_EXECUTOR."""
+    start_time = time.time() # Track when the thread started
+    
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return "AI analysis disabled. (GEMINI_API_KEY not set in environment)."
@@ -104,6 +106,11 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
     )
 
     for attempt in range(3):
+        # 1. Check if we have already exceeded the overall deadline
+        if time.time() - start_time > 11.5: 
+            log.warning("AI background thread aborting: exceeded 12s deadline.")
+            break 
+
         try:
             resp = requests.post(endpoint, json=payload, timeout=8)
 
@@ -123,6 +130,12 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
 
             if resp.status_code in (429, 503):
                 wait_time = 1.5 * (attempt + 1)
+                
+                # 2. Check if sleeping will push us past the deadline
+                if time.time() - start_time + wait_time > 11.5:
+                    log.warning("AI background thread aborting: sleep will exceed deadline.")
+                    break
+                    
                 log.info("AI Engine busy (%s). Retry %d in %.1fs.", resp.status_code, attempt + 1, wait_time)
                 time.sleep(wait_time)
                 continue
@@ -132,6 +145,10 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
 
         except requests.exceptions.RequestException as e:
             log.warning("Network error on AI call (attempt %d): %s", attempt + 1, e)
+            
+            # 3. Prevent the 1-second sleep if time is up
+            if time.time() - start_time + 1 > 11.5:
+                break
             time.sleep(1)
 
     return "AI analysis unavailable at this time."
