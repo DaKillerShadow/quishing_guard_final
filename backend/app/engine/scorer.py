@@ -1,8 +1,8 @@
 """
-scorer.py — Master Integrated Heuristic Scoring Engine (v2.6.4)
+scorer.py — Master Integrated Heuristic Scoring Engine (v2.6.5)
 ================================================================
-Core analytical engine for Quishing Guard. Calculates risk scores 
-based on 12 security indicators, unrolls nested shorteners, and 
+Core analytical engine for Quishing Guard. Calculates risk scores
+based on 12 security indicators, unrolls nested shorteners, and
 evaluates zero-day infrastructure.
 
 Fixes applied:
@@ -12,6 +12,16 @@ Fixes applied:
   ENG-06  Unknown reputation scores 0 (not +30) to prevent baseline skew.
   ENG-09  KNOWN_SHORTENERS centralized in resolver.py.
   ENG-11  meta_refresh_found passed from ResolverResult.
+  ENG-20  _call_gemini: start_time captured at thread entry (not after the
+          api_key guard) so the 11.5 s wall-clock budget begins the instant
+          the thread is scheduled — not after the env-var lookup that can
+          itself be slow on some platforms.
+  ENG-21  Three-point deadline enforcement inside _call_gemini:
+          (1) Hard abort at loop top when elapsed > 11.5 s.
+          (2) Pre-sleep abort when elapsed + wait_time > 11.5 s (429/503).
+          (3) Pre-sleep abort when elapsed + 1 s > 11.5 s (network error).
+          Together these guarantee the thread never blocks past the 12 s
+          future.result() timeout enforced by get_ai_insight().
   NEW     Pillar 12: Brand Impersonation in Domain detected.
   NEW     Zero-Trust Floor: Unknown domains with 0 triggers default to Warning.
 """
@@ -77,9 +87,25 @@ _CRITICAL_OVERRIDE_FLOORS = {
 # ── 2. AI Threat Analysis Agent ───────────────────────────────────────────────
 
 def _call_gemini(raw_url: str, resolved_url: str) -> str:
-    """Blocking Gemini call — intended to run inside _AI_EXECUTOR."""
-    start_time = time.time() # Track when the thread started
-    
+    """
+    Blocking Gemini call — runs inside _AI_EXECUTOR worker threads.
+
+    ENG-20: start_time is captured at the very top of the function, before
+    the api_key guard, so the 11.5 s wall-clock deadline begins the instant
+    the OS schedules this thread. Placing it after the env-var lookup could
+    allow the budget to be silently consumed on slow systems.
+
+    ENG-21: Three explicit deadline checkpoints prevent orphaned threads:
+      (1) Top-of-loop hard abort  — catches any elapsed overrun.
+      (2) Pre-sleep abort (429/503) — prevents a retry sleep from blowing past.
+      (3) Pre-sleep abort (network) — prevents the 1 s error-back-off from blowing past.
+    All three are required; missing any one creates a gap where a slow network
+    response or a delayed retry could push the thread past the 12 s external
+    future.result() timeout and leave it orphaned inside the executor.
+    """
+    # ENG-20: Capture wall-clock start BEFORE the api_key guard.
+    start_time = time.time()
+
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return "AI analysis disabled. (GEMINI_API_KEY not set in environment)."
@@ -106,21 +132,21 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
     )
 
     for attempt in range(3):
-        # 1. Check if we have already exceeded the overall deadline
-        if time.time() - start_time > 11.5: 
-            log.warning("AI background thread aborting: exceeded 12s deadline.")
-            break 
+        # ENG-21 checkpoint (1): Hard abort if wall-clock budget is already spent.
+        if time.time() - start_time > 11.5:
+            log.warning("AI background thread aborting: exceeded 11.5 s deadline before attempt %d.", attempt)
+            break
 
         try:
             resp = requests.post(endpoint, json=payload, timeout=8)
 
             if resp.status_code == 200:
                 try:
-                    data           = resp.json()
-                    candidates     = data.get("candidates", [])
+                    data          = resp.json()
+                    candidates    = data.get("candidates", [])
                     if not candidates:
                         return "AI analysis unavailable at this time."
-                    content_parts  = candidates[0].get("content", {}).get("parts", [])
+                    content_parts = candidates[0].get("content", {}).get("parts", [])
                     if not content_parts:
                         return "AI analysis unavailable at this time."
                     return content_parts[0].get("text", "").strip() or "AI analysis unavailable at this time."
@@ -130,13 +156,20 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
 
             if resp.status_code in (429, 503):
                 wait_time = 1.5 * (attempt + 1)
-                
-                # 2. Check if sleeping will push us past the deadline
+
+                # ENG-21 checkpoint (2): Abort before sleeping if sleep will
+                # consume the remaining budget and push past the deadline.
                 if time.time() - start_time + wait_time > 11.5:
-                    log.warning("AI background thread aborting: sleep will exceed deadline.")
+                    log.warning(
+                        "AI background thread aborting: %.1f s retry sleep would exceed deadline.",
+                        wait_time,
+                    )
                     break
-                    
-                log.info("AI Engine busy (%s). Retry %d in %.1fs.", resp.status_code, attempt + 1, wait_time)
+
+                log.info(
+                    "AI Engine busy (%s). Retry %d in %.1f s.",
+                    resp.status_code, attempt + 1, wait_time,
+                )
                 time.sleep(wait_time)
                 continue
 
@@ -145,9 +178,11 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
 
         except requests.exceptions.RequestException as e:
             log.warning("Network error on AI call (attempt %d): %s", attempt + 1, e)
-            
-            # 3. Prevent the 1-second sleep if time is up
+
+            # ENG-21 checkpoint (3): Abort before error back-off sleep if it
+            # would push the thread past the 11.5 s deadline.
             if time.time() - start_time + 1 > 11.5:
+                log.warning("AI background thread aborting: 1 s error sleep would exceed deadline.")
                 break
             time.sleep(1)
 
@@ -203,7 +238,7 @@ def trace_redirects(start_url: str) -> dict:
         "error":              res.error,
         "redirect_chain":     getattr(res, "redirect_chain", []),
     }
-    
+
     # Fallback check if resolver didn't provide the flag
     if not res.error and not tracker_results["meta_refresh_found"]:
         if hasattr(res, "meta_refresh_found") is False:
@@ -390,7 +425,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "name":      "brand_spoof",
         "label":     "BRAND IMPERSONATION IN DOMAIN",
         "status":    "DANGER" if is_brand_spoof else "SAFE",
-        "message":   "Suspicious use of a trusted brand name in an unverified domain." if is_brand_spoof 
+        "message":   "Suspicious use of a trusted brand name in an unverified domain." if is_brand_spoof
                      else "No deceptive brand keywords found in domain. ✓",
         "metric":    f"Domain: {domain}" if is_brand_spoof else "",
         "score":     25 if is_brand_spoof else 0,
@@ -454,4 +489,3 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         ),
         "ai_analysis":        ai_text,
     }
-
