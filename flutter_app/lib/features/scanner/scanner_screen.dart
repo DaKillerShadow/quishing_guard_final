@@ -1,5 +1,4 @@
 // lib/features/scanner/scanner_screen.dart
-import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,7 +21,46 @@ import '../../shared/widgets/security_error_widget.dart';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
-enum ScanState { idle, scanning, analysing, done, error }
+enum ScanState { idle, scanning, analysing, done, error, wifi }
+
+/// Parsed fields from a WIFI: QR code.
+/// Format: WIFI:S:<ssid>;T:<WPA|WEP|nopass>;P:<password>;H:<true|false>;;
+class WifiInfo {
+  const WifiInfo({
+    required this.ssid,
+    required this.password,
+    required this.type,
+    required this.hidden,
+  });
+
+  final String ssid;
+  final String password;
+  final String type;
+  final bool hidden;
+
+  static WifiInfo parse(String raw) {
+    // Each field is separated by unescaped semicolons.
+    // Values may contain escaped chars: \\ \; \, \"
+    String extract(String key) {
+      final match = RegExp('$key:((?:[^;\\\\]|\\\\.)*)').firstMatch(raw);
+      if (match == null) return '';
+      // Unescape \\ \; \, \"
+      return match
+          .group(1)!
+          .replaceAll(r'\\', r'\')
+          .replaceAll(r'\;', ';')
+          .replaceAll(r'\,', ',')
+          .replaceAll(r'\"', '"');
+    }
+
+    return WifiInfo(
+      ssid:     extract('S'),
+      password: extract('P'),
+      type:     extract('T').toUpperCase(),
+      hidden:   extract('H').toLowerCase() == 'true',
+    );
+  }
+}
 
 class ScannerState {
   const ScannerState({
@@ -31,12 +69,14 @@ class ScannerState {
     this.errorMsg,
     this.apiException,
     this.torchOn = false,
+    this.wifiInfo,
   });
   final ScanState state;
   final String statusMsg;
   final String? errorMsg;
   final ApiException? apiException;
   final bool torchOn;
+  final WifiInfo? wifiInfo;
 
   ScannerState copyWith({
     ScanState? state,
@@ -44,6 +84,7 @@ class ScannerState {
     String? errorMsg,
     ApiException? apiException,
     bool? torchOn,
+    WifiInfo? wifiInfo,
   }) =>
       ScannerState(
         state:        state        ?? this.state,
@@ -51,6 +92,7 @@ class ScannerState {
         errorMsg:     errorMsg     ?? this.errorMsg,
         apiException: apiException,
         torchOn:      torchOn      ?? this.torchOn,
+        wifiInfo:     wifiInfo,
       );
 }
 
@@ -77,6 +119,7 @@ class ScannerController extends StateNotifier<ScannerState> {
     final value   = barcode?.rawValue;
     if (value == null || value.isEmpty) return;
 
+    // Debounce: ignore the same code within 3 seconds.
     final now = DateTime.now();
     if (value == _lastCode &&
         _lastAt != null &&
@@ -88,37 +131,51 @@ class ScannerController extends StateNotifier<ScannerState> {
     _analyse(value);
   }
 
-  // FIX B-06: analyzeDemo was called in a fire-and-forget onTap without
-  // awaiting — unhandled errors were silently dropped. The fix is to mark
-  // the internal call with unawaited() so lint is satisfied and we still
-  // surface errors via the normal state machine inside _analyse().
-  void analyzeDemo(String url) {
-    unawaited(_analyse(url));
+  Future<void> analyzeDemo(String url) async {
+    await _analyse(url);
   }
 
   Future<void> _analyse(String rawUrl) async {
     final lower = rawUrl.toLowerCase();
 
-    // 1. Reject specific non-web schemas
-    if (lower.startsWith('wifi:')         ||
-        lower.startsWith('begin:vcard')   ||
-        lower.startsWith('tel:')          ||
-        lower.startsWith('mailto:')       ||
-        lower.startsWith('sms:')) {
+    // 1. Handle non-web QR schemas.
+    //
+    // WiFi codes: parse credentials and transition to ScanState.wifi.
+    // The widget's ref.listen detects this state and shows the bottom sheet.
+    // The controller never touches BuildContext (UI concern → widget only).
+    if (lower.startsWith('wifi:')) {
       state = state.copyWith(
-        state:     ScanState.error,
-        errorMsg:  'Not a valid URL. QR code contains text: "$rawUrl"',
-        statusMsg: 'Not a web link — tap to retry',
+        state:     ScanState.wifi,
+        wifiInfo:  WifiInfo.parse(rawUrl),
+        statusMsg: '📶 WiFi QR detected',
       );
       return;
     }
 
-    // 2. Normalise raw domains
+    // Other non-URL schemas: friendly message, no crash.
+    const nonUrlLabels = {
+      'begin:vcard': '👤 Contact card — nothing to analyse.',
+      'tel:':        '📞 Phone number — nothing to analyse.',
+      'mailto:':     '✉️  Email address — nothing to analyse.',
+      'sms:':        '💬 SMS code — nothing to analyse.',
+    };
+    for (final entry in nonUrlLabels.entries) {
+      if (lower.startsWith(entry.key)) {
+        state = state.copyWith(
+          state:     ScanState.error,
+          errorMsg:  entry.value,
+          statusMsg: 'Not a web link — tap to retry',
+        );
+        return;
+      }
+    }
+
+    // 2. Normalise raw domains.
     final url = (lower.startsWith('http://') || lower.startsWith('https://'))
         ? rawUrl
         : 'https://$rawUrl';
 
-    // 3. Check connectivity before hitting the API
+    // 3. Check connectivity before hitting the API.
     final connectivity = await Connectivity().checkConnectivity();
     if (connectivity.every((r) => r == ConnectivityResult.none)) {
       state = state.copyWith(
@@ -129,6 +186,12 @@ class ScannerController extends StateNotifier<ScannerState> {
       return;
     }
 
+    // 4. Enter analysing state.
+    //    M-1 FIX: The widget listens to this state transition and calls
+    //    _stopCamera() so no new QR codes are accepted while the API call
+    //    is in flight. Without this, a different code scanned mid-analysis
+    //    would trigger a second concurrent API call, causing a race condition
+    //    where the second result's navigation overwrites the first result's.
     state = state.copyWith(
       state:     ScanState.analysing,
       statusMsg: '✓ QR detected — analysing…',
@@ -140,7 +203,7 @@ class ScannerController extends StateNotifier<ScannerState> {
 
       state = state.copyWith(state: ScanState.done);
 
-      // Read autoLesson preference and route dynamically
+      // Read autoLesson preference and route dynamically.
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
 
@@ -149,7 +212,6 @@ class ScannerController extends StateNotifier<ScannerState> {
       } else {
         _ref.read(_navigateProvider)?.call('/preview', extra: result);
       }
-
     } on ApiException catch (e) {
       state = state.copyWith(
         state:        ScanState.error,
@@ -174,8 +236,11 @@ class ScannerController extends StateNotifier<ScannerState> {
     final image  = await picker.pickImage(source: ImageSource.gallery);
     if (image == null) return;
 
+    // State transition to ScanState.scanning → the ref.listen in build()
+    // will call _stopCamera() to prevent conflicting detections.
     state = state.copyWith(
         state: ScanState.scanning, statusMsg: '🔍 Analysing image...');
+
     final controller = MobileScannerController();
     try {
       final BarcodeCapture? capture =
@@ -193,7 +258,7 @@ class ScannerController extends StateNotifier<ScannerState> {
             statusMsg: 'Point at a QR code');
       }
     } catch (e) {
-      // FIX: surface gallery-scan errors through normal state machine
+      // Surface gallery-scan errors through the normal state machine.
       state = state.copyWith(
           state:     ScanState.error,
           errorMsg:  'Gallery scan failed: ${e.toString()}',
@@ -206,6 +271,8 @@ class ScannerController extends StateNotifier<ScannerState> {
   void reset() {
     _lastCode = null;
     state = const ScannerState();
+    // M-1 FIX: Camera restart is triggered by the ref.listen in the widget
+    // detecting the transition from analysing/error back to idle.
   }
 }
 
@@ -245,7 +312,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _startCamera();
+      // Only restart if the scanner is in an idle/ready state.
+      final scanState = ref.read(scannerStateProvider).state;
+      if (scanState == ScanState.idle || scanState == ScanState.error) {
+        _startCamera();
+      }
     } else {
       _stopCamera();
     }
@@ -255,7 +326,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     if (!_isCameraActive && mounted) {
       _cam.start();
       _isCameraActive = true;
-      ref.read(scannerStateProvider.notifier).reset();
     }
   }
 
@@ -275,10 +345,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   }
 
   // ── Demo Menu ──────────────────────────────────────────────────────────────
-  void _showDemoMenu(BuildContext context) {
-    // FIX B-07: Stop the camera while the demo sheet is open.
-    _stopCamera();
 
+  void _showDemoMenu(BuildContext context) {
     final demos = [
       {
         'title':    '🍎 1. Apple Punycode (False UI)',
@@ -318,8 +386,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                 child: Text(
                   '🧪 Presentation Demo Mode',
                   style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
+                      color:      Colors.white,
+                      fontSize:   18,
                       fontWeight: FontWeight.bold),
                 ),
               ),
@@ -332,7 +400,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         color: Colors.cyan, size: 16),
                     onTap: () {
                       Navigator.pop(ctx);
-                      _startCamera();
                       ref
                           .read(scannerStateProvider.notifier)
                           .analyzeDemo(demo['url']!);
@@ -342,10 +409,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
           ),
         );
       },
-    ).then((_) {
-      // FIX B-07: Ensure camera restarts if the sheet is swiped away
-      _startCamera();
-    });
+    );
   }
 
   @override
@@ -354,7 +418,48 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     final isLoading = scanState.state == ScanState.analysing;
     final hasError  = scanState.apiException != null;
 
-    ref.listen(scannerStateProvider, (previous, next) {
+    // ── M-1 FIX: Camera lifecycle managed by state transitions ───────────────
+    //
+    // Previously the camera ran continuously while analysis was in progress,
+    // allowing a second QR code to be detected mid-analysis and trigger a
+    // concurrent API call. The second call's navigation would then race with
+    // the first, leaving the user on an unexpected result screen.
+    //
+    // Fix: listen to ScannerState transitions and stop/start the camera at
+    // the widget level (where _cam lives) based on the analysis lifecycle:
+    //   • entering analysing, scanning, or wifi → stop camera (lock out new detections)
+    //   • returning to idle                     → restart camera (ready for next scan)
+    //   • entering error                        → stop camera (user must tap retry)
+    ref.listen<ScannerState>(scannerStateProvider, (previous, next) {
+      // Camera lifecycle: stop on active states, restart on idle.
+      if (previous?.state != next.state) {
+        if (next.state == ScanState.analysing ||
+            next.state == ScanState.scanning ||
+            next.state == ScanState.wifi) {
+          _stopCamera();
+        }
+        if (next.state == ScanState.idle) {
+          _startCamera();
+        }
+      }
+
+      // WiFi QR detected → show credential bottom sheet from the widget
+      // (not the controller) so BuildContext stays in the UI layer.
+      if (next.state == ScanState.wifi && next.wifiInfo != null) {
+        showModalBottomSheet<void>(
+          context: context,
+          backgroundColor: const Color(0xFF1A1B26),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (_) => _WifiSheet(info: next.wifiInfo!),
+        ).whenComplete(() {
+          // Reset scanner to idle so camera restarts after sheet closes.
+          ref.read(scannerStateProvider.notifier).reset();
+        });
+      }
+
+      // Show non-API errors as SnackBars.
       if (next.apiException == null && next.errorMsg != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -601,9 +706,9 @@ class _TopChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: .1),
+            color:        color.withValues(alpha: .1),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withValues(alpha: .3))),
+            border:       Border.all(color: color.withValues(alpha: .3))),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(icon, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
@@ -681,3 +786,199 @@ class _CtrlBtn extends StatelessWidget {
       );
 }
 
+// ── WiFi Credential Sheet ─────────────────────────────────────────────────────
+
+/// Full-screen bottom sheet shown when a WiFi QR code is scanned.
+/// Displays SSID, security type, and password with a one-tap copy button.
+/// Never sends any data to the backend — all parsing is local.
+class _WifiSheet extends StatefulWidget {
+  const _WifiSheet({required this.info});
+  final WifiInfo info;
+
+  @override
+  State<_WifiSheet> createState() => _WifiSheetState();
+}
+
+class _WifiSheetState extends State<_WifiSheet> {
+  bool _passwordVisible = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final info        = widget.info;
+    final hasPassword = info.password.isNotEmpty;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        child: Column(
+          mainAxisSize:      MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header ───────────────────────────────────────────────────────
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color:        AppColors.arc.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text('📶', style: TextStyle(fontSize: 22)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('WiFi Network',
+                        style: TextStyle(
+                            color:      Colors.white,
+                            fontSize:   18,
+                            fontWeight: FontWeight.bold)),
+                    Text(
+                      info.hidden ? 'Hidden network' : 'Visible network',
+                      style: TextStyle(
+                          color: Colors.grey.shade500, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ]),
+
+            const SizedBox(height: 20),
+            const Divider(color: Color(0xFF2A2B36)),
+            const SizedBox(height: 16),
+
+            // ── Fields ───────────────────────────────────────────────────────
+            _WifiRow(label: 'Network Name', value: info.ssid, copyable: true),
+            const SizedBox(height: 12),
+            _WifiRow(
+              label: 'Security',
+              value: info.type.isEmpty ? 'None' : info.type,
+            ),
+
+            if (hasPassword) ...[
+              const SizedBox(height: 12),
+              _WifiRow(
+                label:               'Password',
+                value:               info.password,
+                copyable:            true,
+                obscured:            !_passwordVisible,
+                onToggleVisibility:  () =>
+                    setState(() => _passwordVisible = !_passwordVisible),
+                visibilityOn:        _passwordVisible,
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              _WifiRow(label: 'Password', value: 'No password required'),
+            ],
+
+            const SizedBox(height: 24),
+
+            // ── Copy Password Button ──────────────────────────────────────────
+            if (hasPassword)
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    backgroundColor: AppColors.arc.withValues(alpha: .12),
+                    foregroundColor: AppColors.arc,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon:  const Icon(Icons.copy_all_rounded, size: 18),
+                  label: const Text('Copy Password',
+                      style: TextStyle(fontFamily: 'monospace')),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: info.password));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:  Text('✓ Password copied to clipboard'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WifiRow extends StatelessWidget {
+  const _WifiRow({
+    required this.label,
+    required this.value,
+    this.copyable           = false,
+    this.obscured           = false,
+    this.onToggleVisibility,
+    this.visibilityOn       = false,
+  });
+
+  final String label;
+  final String value;
+  final bool copyable;
+  final bool obscured;
+  final VoidCallback? onToggleVisibility;
+  final bool visibilityOn;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayValue = obscured ? '•' * value.length.clamp(0, 20) : value;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 110,
+          child: Text(label,
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+        ),
+        Expanded(
+          child: Text(
+            displayValue,
+            style: const TextStyle(
+                color:      Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize:   13),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (onToggleVisibility != null)
+          GestureDetector(
+            onTap: onToggleVisibility,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Icon(
+                visibilityOn
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded,
+                size:  16,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ),
+        if (copyable)
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: value));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content:  Text('✓ $label copied'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Icon(Icons.copy_rounded,
+                  size:  15,
+                  color: AppColors.arc.withValues(alpha: .8)),
+            ),
+          ),
+      ],
+    );
+  }
+}
