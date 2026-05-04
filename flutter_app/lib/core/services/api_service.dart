@@ -1,4 +1,4 @@
-// lib/core/services/api_service.dart
+          // lib/core/services/api_service.dart
 //
 // Fixes applied (Batch 3):
 //   FLT-02  updateBaseUrl() now validates that the URL uses https:// in release
@@ -41,8 +41,9 @@ final apiServiceProvider = Provider<ApiService>((ref) {
       'API_BASE_URL',
       defaultValue: AppConstants.defaultApiBaseUrl,
     ),
-    // AUDIT FIX [FLT-08]: Use the standard 15s timeouts for all calls.
+    // AUDIT FIX [FLT-08]: Use the standard timeouts for all calls.
     // isHealthy() overrides this per-call with warmupTimeout.
+    // Note: timeouts are now 25s as defined in AppConstants.
     connectTimeout: AppConstants.connectTimeout,
     receiveTimeout: AppConstants.receiveTimeout,
     headers: {
@@ -165,7 +166,7 @@ class ApiService {
     try {
       // AUDIT FIX [FLT-08]: Override receive timeout for this call only.
       // Render free-tier cold starts take up to 60 seconds. All other calls
-      // use the standard 15s timeout via AppConstants.
+      // use the standard timeout via AppConstants.
       final r = await _dio.get(
         '/api/v1/health',
         options: Options(receiveTimeout: AppConstants.warmupTimeout),
