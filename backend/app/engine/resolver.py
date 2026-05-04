@@ -1,14 +1,6 @@
 """
 resolver.py — Safe URL Resolver (v2.7.2)
 ========================================
-Fixes applied:
-  ENG-04  DNS rebinding (TOCTOU) — documented; mitigated by re-validating
-          the socket-level peer IP via a custom HTTPAdapter.
-  ENG-08  Hop limit off-by-one: loop changed to range(max_hops), early-
-          return guard corrected.
-  ENG-11  meta_refresh_found added to ResolverResult — eliminates the
-          redundant second HTTP GET in scorer.py's check_meta_refresh().
-  ENG-12  HEAD response closed before GET fallback to prevent fd leak.
 """
 
 from __future__ import annotations
@@ -131,7 +123,7 @@ def _get_meta_refresh_url(html_content: bytes, base_url: str) -> str | None:
         refresh_tag = soup.find("meta", attrs={"http-equiv": re.compile(r"refresh", re.I)})
         if refresh_tag and "content" in refresh_tag.attrs:
             content = refresh_tag.attrs["content"]
-            match   = re.search(r"url=['\"]?([^'\";\s]+)", content, re.I)
+            match   = re.search(r"url=['\"']?([^'\";\\s]+)", content, re.I)
             if match:
                 return urllib.parse.urljoin(base_url, match.group(1))
     except Exception:
@@ -301,3 +293,4 @@ def _follow_chain(
         meta_refresh_found=meta_refresh_found,
         hit_limit=True,
     )
+
