@@ -1,3 +1,27 @@
+// lib/shared/widgets/heuristic_card.dart
+//
+// FIX UI-01: Three-tier status color mapping (SAFE / WARNING / DANGER).
+//
+// The original widget used a binary isSafe/not-safe check:
+//
+//   final isSafe   = check.status == "SAFE" && !check.triggered;
+//   final hitColor = isSafe ? AppColors.jade : AppColors.ember;   // ← bug
+//
+// This mapped all non-SAFE checks — both WARNING and DANGER — to AppColors.ember
+// (red). The backend's scorer.py emits three distinct status values:
+//   "SAFE"    → jade  (green)  — check passed, no risk
+//   "WARNING" → amber (yellow) — elevated risk, informational
+//   "DANGER"  → ember (red)    — critical threat indicator
+//
+// With the binary mapping, WARNING-severity pillars (path_keywords, redirect_depth,
+// suspicious_tld, subdomain_depth, https_mismatch, reputation) were all displayed
+// in red — identical to DANGER — losing the visual triage the three-tier system
+// provides. A user scanning a URL with only WARNING flags saw the same red card
+// style as one with a confirmed punycode attack.
+//
+// Fix: replace the boolean with a three-way switch on check.status to correctly
+// apply jade / amber / ember, and use the appropriate icon (✓ / ⚠ / ✕).
+
 import 'package:flutter/material.dart';
 import '../../core/models/scan_result.dart';
 import '../theme/app_theme.dart';
@@ -8,90 +32,109 @@ class HeuristicCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Determine color and icon based on safety status
-    // A check is considered "unsafe" if it's explicitly UNSTAFE or if it was triggered
-    final isSafe = check.status == "SAFE" && !check.triggered;
+    // ── FIX UI-01: Three-tier status → color resolution ───────────────────────
+    //
+    // Priority order:
+    //   1. SAFE (and not triggered)  → jade
+    //   2. WARNING                   → amber
+    //   3. Everything else (DANGER,
+    //      legacy UNSAFE, unknown)   → ember
+    //
+    // Note: a check can have status == "SAFE" but triggered == true if the
+    // backend emits an unexpected combination (e.g., legacy data from history).
+    // We treat triggered SAFE checks as WARNING to avoid silent green display.
+    final Color  hitColor;
+    final Color  hitBg;
+    final String iconText;
 
-    // Choose the theme color based on threat level
-    final hitColor = isSafe ? AppColors.jade : AppColors.ember;
-    final hitBg = isSafe
-        ? AppColors.jade.withValues(alpha: .10)
-        : AppColors.ember.withValues(alpha: .12);
-
-    final iconText = isSafe ? '✓' : '✕';
+    if (check.status == 'SAFE' && !check.triggered) {
+      // Pillar passed: no risk detected.
+      hitColor = AppColors.jade;
+      hitBg    = AppColors.jade.withValues(alpha: .10);
+      iconText = '✓';
+    } else if (check.status == 'WARNING') {
+      // Elevated risk — informational, not critical.
+      hitColor = AppColors.amber;
+      hitBg    = AppColors.amber.withValues(alpha: .10);
+      iconText = '⚠';
+    } else {
+      // DANGER, legacy UNSAFE, or triggered SAFE — critical indicator.
+      hitColor = AppColors.ember;
+      hitBg    = AppColors.ember.withValues(alpha: .12);
+      iconText = '✕';
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── A. Dot Indicator (Status Icon) ──
+          // ── A. Status Icon ──────────────────────────────────────────────────
           Container(
-            width: 24,
-            height: 24,
+            width:     24,
+            height:    24,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: hitBg,
+              shape:  BoxShape.circle,
+              color:  hitBg,
               border: Border.all(color: hitColor.withValues(alpha: .4)),
             ),
             alignment: Alignment.center,
             child: Text(
               iconText,
               style: TextStyle(
-                fontSize: 10,
+                fontSize:   10,
                 fontWeight: FontWeight.w700,
-                color: hitColor,
+                color:      hitColor,
               ),
             ),
           ),
           const SizedBox(width: 12),
 
-          // ── B. Content Column (The "Meat" of the analysis) ──
+          // ── B. Content Column ───────────────────────────────────────────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Human-readable Title (e.g., "Punycode Attack Detected")
+                // Human-readable pillar label (e.g., "PUNYCODE ATTACK")
                 Text(
                   check.label.toUpperCase(),
                   style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textColor,
+                    fontFamily:    'monospace',
+                    fontSize:      11,
+                    fontWeight:    FontWeight.bold,
+                    color:         AppColors.textColor,
                     letterSpacing: 0.5,
                   ),
                 ),
                 const SizedBox(height: 4),
 
-                // The Finding Message: Explains WHY this check matters
+                // The finding explanation from scorer.py
                 Text(
                   check.message,
                   style: const TextStyle(
                     fontFamily: 'monospace',
-                    fontSize: 11,
-                    color: AppColors.muted,
-                    height: 1.4,
+                    fontSize:   11,
+                    color:      AppColors.muted,
+                    height:     1.4,
                   ),
                 ),
 
-                // Technical Metric: Shows the proof (e.g., "Entropy: 4.8 bits")
+                // Technical metric (e.g., "Entropy: 4.82 bits | Confidence: high")
                 if (check.metric.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppColors.arc.withValues(alpha: .05),
+                      color:        AppColors.arc.withValues(alpha: .05),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       check.metric,
                       style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.arc.withValues(alpha: .8),
+                        fontFamily:  'monospace',
+                        fontSize:    9,
+                        fontWeight:  FontWeight.w600,
+                        color:       AppColors.arc.withValues(alpha: .8),
                       ),
                     ),
                   ),
@@ -101,21 +144,21 @@ class HeuristicCard extends StatelessWidget {
           ),
           const SizedBox(width: 8),
 
-          // ── C. Score Pill (Risk contribution) ──
+          // ── C. Score Pill ───────────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
             decoration: BoxDecoration(
-              color: hitBg,
+              color:        hitBg,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: hitColor.withValues(alpha: .3)),
+              border:       Border.all(color: hitColor.withValues(alpha: .3)),
             ),
             child: Text(
               check.score > 0 ? '+${check.score}' : '0',
               style: TextStyle(
                 fontFamily: 'monospace',
-                fontSize: 10,
+                fontSize:   10,
                 fontWeight: FontWeight.w700,
-                color: hitColor,
+                color:      hitColor,
               ),
             ),
           ),
