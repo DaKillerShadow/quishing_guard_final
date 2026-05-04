@@ -4,26 +4,6 @@ scorer.py — Master Integrated Heuristic Scoring Engine (v2.6.5)
 Core analytical engine for Quishing Guard. Calculates risk scores
 based on 12 security indicators, unrolls nested shorteners, and
 evaluates zero-day infrastructure.
-
-Fixes applied:
-  ENG-01  API key redacted from logs; print() replaced with log.error().
-  ENG-02  AI call moved to ThreadPoolExecutor to prevent blocking.
-  ENG-05  is_trusted uses eTLD+1 only (prevents evil.google.com bypass).
-  ENG-06  Unknown reputation scores 0 (not +30) to prevent baseline skew.
-  ENG-09  KNOWN_SHORTENERS centralized in resolver.py.
-  ENG-11  meta_refresh_found passed from ResolverResult.
-  ENG-20  _call_gemini: start_time captured at thread entry (not after the
-          api_key guard) so the 11.5 s wall-clock budget begins the instant
-          the thread is scheduled — not after the env-var lookup that can
-          itself be slow on some platforms.
-  ENG-21  Three-point deadline enforcement inside _call_gemini:
-          (1) Hard abort at loop top when elapsed > 11.5 s.
-          (2) Pre-sleep abort when elapsed + wait_time > 11.5 s (429/503).
-          (3) Pre-sleep abort when elapsed + 1 s > 11.5 s (network error).
-          Together these guarantee the thread never blocks past the 12 s
-          future.result() timeout enforced by get_ai_insight().
-  NEW     Pillar 12: Brand Impersonation in Domain detected.
-  NEW     Zero-Trust Floor: Unknown domains with 0 triggers default to Warning.
 """
 
 from __future__ import annotations
