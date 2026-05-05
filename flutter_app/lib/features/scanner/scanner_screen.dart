@@ -19,7 +19,7 @@ import '../../shared/widgets/scan_overlay.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/security_error_widget.dart';
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 
 enum ScanState { idle, scanning, analysing, done, error, wifi }
 
@@ -36,15 +36,12 @@ class WifiInfo {
   final String ssid;
   final String password;
   final String type;
-  final bool hidden;
+  final bool   hidden;
 
   static WifiInfo parse(String raw) {
-    // Each field is separated by unescaped semicolons.
-    // Values may contain escaped chars: \\ \; \, \"
     String extract(String key) {
       final match = RegExp('$key:((?:[^;\\\\]|\\\\.)*)').firstMatch(raw);
       if (match == null) return '';
-      // Unescape \\ \; \, \"
       return match
           .group(1)!
           .replaceAll(r'\\', r'\')
@@ -64,27 +61,28 @@ class WifiInfo {
 
 class ScannerState {
   const ScannerState({
-    this.state = ScanState.idle,
+    this.state    = ScanState.idle,
     this.statusMsg = 'Point at a QR code',
     this.errorMsg,
     this.apiException,
-    this.torchOn = false,
+    this.torchOn  = false,
     this.wifiInfo,
   });
-  final ScanState state;
-  final String statusMsg;
-  final String? errorMsg;
+
+  final ScanState    state;
+  final String       statusMsg;
+  final String?      errorMsg;
   final ApiException? apiException;
-  final bool torchOn;
-  final WifiInfo? wifiInfo;
+  final bool         torchOn;
+  final WifiInfo?    wifiInfo;
 
   ScannerState copyWith({
-    ScanState? state,
-    String? statusMsg,
-    String? errorMsg,
+    ScanState?    state,
+    String?       statusMsg,
+    String?       errorMsg,
     ApiException? apiException,
-    bool? torchOn,
-    WifiInfo? wifiInfo,
+    bool?         torchOn,
+    WifiInfo?     wifiInfo,
   }) =>
       ScannerState(
         state:        state        ?? this.state,
@@ -106,20 +104,24 @@ class ScannerController extends StateNotifier<ScannerState> {
   ScannerController(this._ref) : super(const ScannerState());
   final Ref _ref;
 
-  String? _lastCode;
+  String?   _lastCode;
   DateTime? _lastAt;
   static const _debounce = Duration(seconds: 3);
 
-  void setTorch(bool isOn) {
-    state = state.copyWith(torchOn: isOn);
-  }
+  void setTorch(bool isOn) => state = state.copyWith(torchOn: isOn);
 
   void onDetect(BarcodeCapture capture) {
-    final barcode = capture.barcodes.firstOrNull;
-    final value   = barcode?.rawValue;
+    // UI-02 FIX: State guard prevents concurrent scans without stopping the
+    // camera. Previously _stopCamera() was called here, which turned the
+    // MobileScanner preview black. Now the camera stays live and new
+    // detections are simply ignored while a scan is already in progress.
+    if (state.state == ScanState.analysing ||
+        state.state == ScanState.scanning  ||
+        state.state == ScanState.done) return;
+
+    final value = capture.barcodes.firstOrNull?.rawValue;
     if (value == null || value.isEmpty) return;
 
-    // Debounce: ignore the same code within 3 seconds.
     final now = DateTime.now();
     if (value == _lastCode &&
         _lastAt != null &&
@@ -131,18 +133,12 @@ class ScannerController extends StateNotifier<ScannerState> {
     _analyse(value);
   }
 
-  Future<void> analyzeDemo(String url) async {
-    await _analyse(url);
-  }
+  Future<void> analyzeDemo(String url) async => _analyse(url);
 
   Future<void> _analyse(String rawUrl) async {
     final lower = rawUrl.toLowerCase();
 
-    // 1. Handle non-web QR schemas.
-    //
-    // WiFi codes: parse credentials and transition to ScanState.wifi.
-    // The widget's ref.listen detects this state and shows the bottom sheet.
-    // The controller never touches BuildContext (UI concern → widget only).
+    // ── 1. WiFi QR ───────────────────────────────────────────────────────────
     if (lower.startsWith('wifi:')) {
       state = state.copyWith(
         state:     ScanState.wifi,
@@ -152,7 +148,7 @@ class ScannerController extends StateNotifier<ScannerState> {
       return;
     }
 
-    // Other non-URL schemas: friendly message, no crash.
+    // ── 2. Other non-URL schemas ─────────────────────────────────────────────
     const nonUrlLabels = {
       'begin:vcard': '👤 Contact card — nothing to analyse.',
       'tel:':        '📞 Phone number — nothing to analyse.',
@@ -170,12 +166,12 @@ class ScannerController extends StateNotifier<ScannerState> {
       }
     }
 
-    // 2. Normalise raw domains.
+    // ── 3. Normalise scheme ──────────────────────────────────────────────────
     final url = (lower.startsWith('http://') || lower.startsWith('https://'))
         ? rawUrl
         : 'https://$rawUrl';
 
-    // 3. Check connectivity before hitting the API.
+    // ── 4. Connectivity check ────────────────────────────────────────────────
     final connectivity = await Connectivity().checkConnectivity();
     if (connectivity.every((r) => r == ConnectivityResult.none)) {
       state = state.copyWith(
@@ -186,12 +182,7 @@ class ScannerController extends StateNotifier<ScannerState> {
       return;
     }
 
-    // 4. Enter analysing state.
-    //    M-1 FIX: The widget listens to this state transition and calls
-    //    _stopCamera() so no new QR codes are accepted while the API call
-    //    is in flight. Without this, a different code scanned mid-analysis
-    //    would trigger a second concurrent API call, causing a race condition
-    //    where the second result's navigation overwrites the first result's.
+    // ── 5. Analysing ─────────────────────────────────────────────────────────
     state = state.copyWith(
       state:     ScanState.analysing,
       statusMsg: '✓ QR detected — analysing…',
@@ -201,9 +192,15 @@ class ScannerController extends StateNotifier<ScannerState> {
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
       await _ref.read(historyProvider.notifier).add(result);
 
-      state = state.copyWith(state: ScanState.done);
+      // UI-03 FIX: Transition to done with updated statusMsg so the brief
+      // gap between done and navigation shows useful text with the loader
+      // still covering the screen (isLoading includes ScanState.done in
+      // the widget).
+      state = state.copyWith(
+        state:     ScanState.done,
+        statusMsg: '✓ Analysis complete — opening results…',
+      );
 
-      // Read autoLesson preference and route dynamically.
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
 
@@ -228,25 +225,21 @@ class ScannerController extends StateNotifier<ScannerState> {
   }
 
   Future<void> scanFromGallery() async {
-    // Guard: image picker behaves differently on web; the UI already hides
-    // this button on web via kIsWeb, but we add a safety check here too.
     if (kIsWeb) return;
 
-    final picker = ImagePicker();
-    final image  = await picker.pickImage(source: ImageSource.gallery);
+    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (image == null) return;
 
-    // State transition to ScanState.scanning → the ref.listen in build()
-    // will call _stopCamera() to prevent conflicting detections.
+    // Gallery scan is the one case where the camera IS intentionally stopped —
+    // MobileScannerController.analyzeImage() needs exclusive access.
     state = state.copyWith(
         state: ScanState.scanning, statusMsg: '🔍 Analysing image...');
 
     final controller = MobileScannerController();
     try {
-      final BarcodeCapture? capture =
-          await controller.analyzeImage(image.path);
+      final capture = await controller.analyzeImage(image.path);
       if (capture != null && capture.barcodes.isNotEmpty) {
-        final String? code = capture.barcodes.first.rawValue;
+        final code = capture.barcodes.first.rawValue;
         if (code != null) {
           HapticFeedback.mediumImpact();
           await _analyse(code);
@@ -258,7 +251,6 @@ class ScannerController extends StateNotifier<ScannerState> {
             statusMsg: 'Point at a QR code');
       }
     } catch (e) {
-      // Surface gallery-scan errors through the normal state machine.
       state = state.copyWith(
           state:     ScanState.error,
           errorMsg:  'Gallery scan failed: ${e.toString()}',
@@ -270,9 +262,8 @@ class ScannerController extends StateNotifier<ScannerState> {
 
   void reset() {
     _lastCode = null;
-    state = const ScannerState();
-    // M-1 FIX: Camera restart is triggered by the ref.listen in the widget
-    // detecting the transition from analysing/error back to idle.
+    state     = const ScannerState();
+    // Transition to idle triggers _startCamera() in the widget's ref.listen.
   }
 }
 
@@ -302,8 +293,16 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       formats:        [BarcodeFormat.qrCode],
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(_navigateProvider.notifier).state = (path, {extra}) {
-        if (mounted) context.push(path, extra: extra);
+      // UI-04 FIX: The callback is now async and awaits context.push().
+      // When the user pops /preview or /lesson, push() completes and
+      // reset() is called here, transitioning state to idle. ref.listen
+      // below detects idle and calls _startCamera().
+      // Previously: synchronous callback → push() was fire-and-forget →
+      // state stayed at ScanState.done after pop → camera never restarted.
+      ref.read(_navigateProvider.notifier).state = (path, {extra}) async {
+        if (!mounted) return;
+        await context.push(path, extra: extra);
+        if (mounted) ref.read(scannerStateProvider.notifier).reset();
       };
       _startCamera();
     });
@@ -312,7 +311,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Only restart if the scanner is in an idle/ready state.
       final scanState = ref.read(scannerStateProvider).state;
       if (scanState == ScanState.idle || scanState == ScanState.error) {
         _startCamera();
@@ -376,75 +374,73 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  '🧪 Presentation Demo Mode',
-                  style: TextStyle(
-                      color:      Colors.white,
-                      fontSize:   18,
-                      fontWeight: FontWeight.bold),
-                ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text(
+                '🧪 Presentation Demo Mode',
+                style: TextStyle(
+                    color:      Colors.white,
+                    fontSize:   18,
+                    fontWeight: FontWeight.bold),
               ),
-              ...demos.map((demo) => ListTile(
-                    title: Text(demo['title']!,
-                        style: const TextStyle(color: Colors.white)),
-                    subtitle: Text(demo['subtitle']!,
-                        style: const TextStyle(color: Colors.grey)),
-                    trailing: const Icon(Icons.arrow_forward_ios,
-                        color: Colors.cyan, size: 16),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      ref
-                          .read(scannerStateProvider.notifier)
-                          .analyzeDemo(demo['url']!);
-                    },
-                  )),
-            ],
-          ),
-        );
-      },
+            ),
+            ...demos.map((demo) => ListTile(
+                  title:    Text(demo['title']!,
+                      style: const TextStyle(color: Colors.white)),
+                  subtitle: Text(demo['subtitle']!,
+                      style: const TextStyle(color: Colors.grey)),
+                  trailing: const Icon(Icons.arrow_forward_ios,
+                      color: Colors.cyan, size: 16),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ref
+                        .read(scannerStateProvider.notifier)
+                        .analyzeDemo(demo['url']!);
+                  },
+                )),
+          ],
+        ),
+      ),
     );
   }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerStateProvider);
-    final isLoading = scanState.state == ScanState.analysing;
+
+    // UI-03 FIX: isLoading is true for both analysing and done.
+    // The gap between done and the navigation push() completing is typically
+    // 1–2 frames but visually significant — the loader must stay up for it.
+    final isLoading = scanState.state == ScanState.analysing ||
+                      scanState.state == ScanState.done;
     final hasError  = scanState.apiException != null;
 
-    // ── M-1 FIX: Camera lifecycle managed by state transitions ───────────────
-    //
-    // Previously the camera ran continuously while analysis was in progress,
-    // allowing a second QR code to be detected mid-analysis and trigger a
-    // concurrent API call. The second call's navigation would then race with
-    // the first, leaving the user on an unexpected result screen.
-    //
-    // Fix: listen to ScannerState transitions and stop/start the camera at
-    // the widget level (where _cam lives) based on the analysis lifecycle:
-    //   • entering analysing, scanning, or wifi → stop camera (lock out new detections)
-    //   • returning to idle                     → restart camera (ready for next scan)
-    //   • entering error                        → stop camera (user must tap retry)
     ref.listen<ScannerState>(scannerStateProvider, (previous, next) {
-      // Camera lifecycle: stop on active states, restart on idle.
       if (previous?.state != next.state) {
-        if (next.state == ScanState.analysing ||
-            next.state == ScanState.scanning ||
+        // UI-02 FIX: ScanState.analysing removed from the stop list.
+        // Camera stays live during analysis so QGLoader renders over a real
+        // camera feed instead of a black void.
+        // Gallery (scanning) still stops the camera — unavoidable because
+        // analyzeImage() needs exclusive controller access.
+        // WiFi still stops — the sheet covers the preview anyway.
+        if (next.state == ScanState.scanning ||
             next.state == ScanState.wifi) {
           _stopCamera();
         }
+        // UI-04 FIX: idle transition is triggered by reset() after push()
+        // returns — this is the signal to restart the camera.
         if (next.state == ScanState.idle) {
           _startCamera();
         }
       }
 
-      // WiFi QR detected → show credential bottom sheet from the widget
-      // (not the controller) so BuildContext stays in the UI layer.
+      // WiFi sheet: opened from widget so BuildContext stays in the UI layer.
       if (next.state == ScanState.wifi && next.wifiInfo != null) {
         showModalBottomSheet<void>(
           context: context,
@@ -453,13 +449,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
           builder: (_) => _WifiSheet(info: next.wifiInfo!),
-        ).whenComplete(() {
-          // Reset scanner to idle so camera restarts after sheet closes.
-          ref.read(scannerStateProvider.notifier).reset();
-        });
+        ).whenComplete(
+            () => ref.read(scannerStateProvider.notifier).reset());
       }
 
-      // Show non-API errors as SnackBars.
+      // Non-API errors → SnackBar.
       if (next.apiException == null && next.errorMsg != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -474,6 +468,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
+
+          // ── L0: Camera preview ─────────────────────────────────────────────
+          // Camera stays running during analysis (UI-02). QGLoader (L4) sits on
+          // top with a solid dark overlay — cyan spinner is clearly visible.
           Positioned.fill(
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(
@@ -482,13 +480,18 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               ),
               child: MobileScanner(
                 controller: _cam,
-                onDetect: ref.read(scannerStateProvider.notifier).onDetect,
+                onDetect:   ref.read(scannerStateProvider.notifier).onDetect,
               ),
             ),
           ),
 
-          const Positioned.fill(child: ScanOverlay()),
+          // ── L1: Scan-line overlay ───────────────────────────────────────────
+          // Hidden while loading — prevents the animated line from running
+          // over the QGLoader, which would look broken.
+          if (!isLoading && !hasError)
+            const Positioned.fill(child: ScanOverlay()),
 
+          // ── L2: Top bar ─────────────────────────────────────────────────────
           if (!hasError)
             SafeArea(
               child: Column(
@@ -545,6 +548,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               ),
             ),
 
+          // ── L3: Bottom status + buttons ─────────────────────────────────────
           if (!hasError)
             Positioned(
               left:   0,
@@ -566,6 +570,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Status chip
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 8),
@@ -589,6 +594,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         ),
                       ),
                       const SizedBox(height: 14),
+                      // Action buttons
                       Row(
                         children: [
                           if (!kIsWeb) ...[
@@ -622,9 +628,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         ],
                       ),
                       const SizedBox(height: 16),
+                      // Footer
                       Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -654,7 +660,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               ),
             ),
 
+          // ── L4: QGLoader ────────────────────────────────────────────────────
+          // Covers L0–L3. Camera is live underneath, making the spinner visible.
+          // Stays up through both analysing AND done (UI-03 fix).
           if (isLoading) const Positioned.fill(child: QGLoader()),
+
+          // ── L5: Security error widget ───────────────────────────────────────
           if (hasError)
             Positioned.fill(
               child: SecurityErrorWidget(
@@ -699,9 +710,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
 class _TopChip extends StatelessWidget {
   final String icon, label;
-  final Color color;
+  final Color  color;
   const _TopChip(
       {required this.icon, required this.label, required this.color});
+
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -717,17 +729,18 @@ class _TopChip extends StatelessWidget {
                   fontFamily:  'monospace',
                   fontSize:    12,
                   fontWeight:  FontWeight.w700,
-                  color:       color))
+                  color:       color)),
         ]),
       );
 }
 
 class _IconBtn extends StatelessWidget {
-  final IconData icon;
+  final IconData     icon;
   final VoidCallback onTap;
-  final bool active;
+  final bool         active;
   const _IconBtn(
       {required this.icon, required this.onTap, this.active = false});
+
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
@@ -750,14 +763,16 @@ class _IconBtn extends StatelessWidget {
 }
 
 class _CtrlBtn extends StatelessWidget {
-  final String icon, label;
+  final String       icon, label;
   final VoidCallback onTap;
-  final bool highlight;
-  const _CtrlBtn(
-      {required this.icon,
-      required this.label,
-      required this.onTap,
-      this.highlight = false});
+  final bool         highlight;
+  const _CtrlBtn({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.highlight = false,
+  });
+
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
@@ -780,7 +795,7 @@ class _CtrlBtn extends StatelessWidget {
                     fontFamily:    'monospace',
                     fontSize:      10,
                     color:         highlight ? AppColors.arc : AppColors.muted,
-                    letterSpacing: 0.5))
+                    letterSpacing: 0.5)),
           ]),
         ),
       );
@@ -788,9 +803,6 @@ class _CtrlBtn extends StatelessWidget {
 
 // ── WiFi Credential Sheet ─────────────────────────────────────────────────────
 
-/// Full-screen bottom sheet shown when a WiFi QR code is scanned.
-/// Displays SSID, security type, and password with a one-tap copy button.
-/// Never sends any data to the backend — all parsing is local.
 class _WifiSheet extends StatefulWidget {
   const _WifiSheet({required this.info});
   final WifiInfo info;
@@ -811,10 +823,10 @@ class _WifiSheetState extends State<_WifiSheet> {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
         child: Column(
-          mainAxisSize:      MainAxisSize.min,
+          mainAxisSize:       MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header ───────────────────────────────────────────────────────
+            // Header
             Row(children: [
               Container(
                 padding: const EdgeInsets.all(10),
@@ -836,8 +848,8 @@ class _WifiSheetState extends State<_WifiSheet> {
                             fontWeight: FontWeight.bold)),
                     Text(
                       info.hidden ? 'Hidden network' : 'Visible network',
-                      style: TextStyle(
-                          color: Colors.grey.shade500, fontSize: 12),
+                      style:
+                          TextStyle(color: Colors.grey.shade500, fontSize: 12),
                     ),
                   ],
                 ),
@@ -848,24 +860,23 @@ class _WifiSheetState extends State<_WifiSheet> {
             const Divider(color: Color(0xFF2A2B36)),
             const SizedBox(height: 16),
 
-            // ── Fields ───────────────────────────────────────────────────────
+            // Fields
             _WifiRow(label: 'Network Name', value: info.ssid, copyable: true),
             const SizedBox(height: 12),
             _WifiRow(
-              label: 'Security',
-              value: info.type.isEmpty ? 'None' : info.type,
-            ),
+                label: 'Security',
+                value: info.type.isEmpty ? 'None' : info.type),
 
             if (hasPassword) ...[
               const SizedBox(height: 12),
               _WifiRow(
-                label:               'Password',
-                value:               info.password,
-                copyable:            true,
-                obscured:            !_passwordVisible,
-                onToggleVisibility:  () =>
+                label:              'Password',
+                value:              info.password,
+                copyable:           true,
+                obscured:           !_passwordVisible,
+                onToggleVisibility: () =>
                     setState(() => _passwordVisible = !_passwordVisible),
-                visibilityOn:        _passwordVisible,
+                visibilityOn:       _passwordVisible,
               ),
             ] else ...[
               const SizedBox(height: 12),
@@ -874,7 +885,7 @@ class _WifiSheetState extends State<_WifiSheet> {
 
             const SizedBox(height: 24),
 
-            // ── Copy Password Button ──────────────────────────────────────────
+            // Copy button
             if (hasPassword)
               SizedBox(
                 width: double.infinity,
@@ -917,16 +928,17 @@ class _WifiRow extends StatelessWidget {
     this.visibilityOn       = false,
   });
 
-  final String label;
-  final String value;
-  final bool copyable;
-  final bool obscured;
+  final String       label;
+  final String       value;
+  final bool         copyable;
+  final bool         obscured;
   final VoidCallback? onToggleVisibility;
-  final bool visibilityOn;
+  final bool         visibilityOn;
 
   @override
   Widget build(BuildContext context) {
-    final displayValue = obscured ? '•' * value.length.clamp(0, 20) : value;
+    final displayValue =
+        obscured ? '•' * value.length.clamp(0, 20) : value;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -934,7 +946,8 @@ class _WifiRow extends StatelessWidget {
         SizedBox(
           width: 110,
           child: Text(label,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+              style:
+                  TextStyle(color: Colors.grey.shade500, fontSize: 13)),
         ),
         Expanded(
           child: Text(
@@ -982,4 +995,3 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
-
