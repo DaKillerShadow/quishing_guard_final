@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/api_service.dart';
@@ -15,6 +16,13 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _State extends ConsumerState<SettingsScreen> {
+  // FIX: Use the same SecureStorage instance that api_service.dart uses.
+  // After FLT-06 moved the token from SharedPreferences to SecureStorage,
+  // reading p.getString('admin_token') always returned null, permanently
+  // showing the login form even after a successful login.
+  static const _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
   late final TextEditingController _apiCtrl;
   late final TextEditingController _userCtrl;
   late final TextEditingController _passCtrl;
@@ -50,9 +58,13 @@ class _State extends ConsumerState<SettingsScreen> {
       _apiCtrl.text = p.getString('apiBase') ?? AppConstants.defaultApiBaseUrl;
       _autoLesson = p.getBool('autoLesson') ?? true;
       _notifications = p.getBool('notifications') ?? true;
-      _isAdmin = p.getString('admin_token') != null;
+      // _isAdmin is set below after async secure storage read.
+      // SharedPreferences check removed — token now lives in SecureStorage (FLT-06).
       _loaded = true;
     });
+    // FIX: Read admin token from SecureStorage (not SharedPreferences).
+    final token = await _secureStorage.read(key: 'admin_token');
+    if (mounted) setState(() => _isAdmin = token != null && token.isNotEmpty);
     await ref.read(apiServiceProvider).loadSavedToken();
   }
 
@@ -160,6 +172,10 @@ class _State extends ConsumerState<SettingsScreen> {
                   await ref.read(apiServiceProvider).adminLogout();
                   if (!mounted) return;
                   setState(() => _isAdmin = false);
+                  // Belt-and-suspenders: clear any stale SharedPreferences entry
+                  // left over from before FLT-06.
+                  final p2 = await SharedPreferences.getInstance();
+                  await p2.remove('admin_token');
                   ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Logged out')));
                 },
@@ -400,3 +416,4 @@ class _Row extends StatelessWidget {
         ]),
       );
 }
+
