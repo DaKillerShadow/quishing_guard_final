@@ -106,10 +106,14 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
         ],
     }
 
+    # H-2 FIX: API key moved from URL query param to request header.
+    # ?key= leaks the secret into every HTTP access log and network capture.
+    # x-goog-api-key is never logged by nginx/gunicorn/Flask.
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-flash-latest:generateContent?key={api_key}"
+        "gemini-flash-latest:generateContent"
     )
+    _base_headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
 
     for attempt in range(3):
         # ENG-21 checkpoint (1): Hard abort if wall-clock budget is already spent.
@@ -118,7 +122,7 @@ def _call_gemini(raw_url: str, resolved_url: str) -> str:
             break
 
         try:
-            resp = requests.post(endpoint, json=payload, timeout=8)
+            resp = requests.post(endpoint, json=payload, headers=_base_headers, timeout=8)
 
             if resp.status_code == 200:
                 try:
@@ -236,7 +240,10 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
 
     if trace_data is None:
         trace_data = trace_redirects(url)
-    target_url = trace_data["final_url"]
+    
+    # FIX: Guard against None final_url when the resolver returns an error.
+    # Passing None to tldextract / urlparse raises AttributeError and crashes the scan.
+    target_url = trace_data.get("final_url") or url
 
     decoded_url = unquote(target_url).lower()
     ext         = tldextract.extract(decoded_url)
@@ -448,7 +455,12 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     triggered_checks = [c for c in checks if c["triggered"] and c["score"] > 0]
     top_threat       = max(triggered_checks, key=lambda c: c["score"])["label"] if triggered_checks else "None"
 
-    ai_text = get_ai_insight(url, target_url)
+    # FIX: Skip AI for allowlisted/blocklisted URLs — verdict is already final.
+    # Calling Gemini for these wastes quota and adds 3–12 s of unnecessary latency.
+    if allowlisted or blocklisted:
+        ai_text = ""
+    else:
+        ai_text = get_ai_insight(url, target_url)
 
     return {
         "url":                url,
@@ -469,3 +481,4 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         ),
         "ai_analysis":        ai_text,
     }
+
