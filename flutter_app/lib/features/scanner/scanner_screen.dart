@@ -982,3 +982,4 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
+
