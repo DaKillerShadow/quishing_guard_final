@@ -123,7 +123,9 @@ def _get_meta_refresh_url(html_content: bytes, base_url: str) -> str | None:
         refresh_tag = soup.find("meta", attrs={"http-equiv": re.compile(r"refresh", re.I)})
         if refresh_tag and "content" in refresh_tag.attrs:
             content = refresh_tag.attrs["content"]
-            match   = re.search(r"url=['\"']?([^'\";\\s]+)", content, re.I)
+            # FIX: Corrected character class. Old ['\"'] also matched backslash,
+            # breaking double-quoted meta-refresh URLs. ['"] is correct.
+            match   = re.search(r"""url=['"]?([^'"\s;]+)""", content, re.I)
             if match:
                 return urllib.parse.urljoin(base_url, match.group(1))
     except Exception:
@@ -293,4 +295,3 @@ def _follow_chain(
         meta_refresh_found=meta_refresh_found,
         hit_limit=True,
     )
-
