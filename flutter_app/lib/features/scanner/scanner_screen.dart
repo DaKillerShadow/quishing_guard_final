@@ -10,8 +10,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/models/scan_result.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
+import '../../core/services/offline_analyzer.dart';
 import '../../core/utils/api_exception.dart';
 import '../../core/utils/app_constants.dart';
 import '../../shared/theme/app_theme.dart';
@@ -171,31 +173,46 @@ class ScannerController extends StateNotifier<ScannerState> {
         ? rawUrl
         : 'https://$rawUrl';
 
-    // ── 4. Connectivity check ────────────────────────────────────────────────
+    // ── 4. Run offline analysis — synchronous, zero network, ~<1 ms ─────────
+    // This fires before any connectivity check so the app always has a
+    // preliminary score to show, regardless of network state.
+    final offlineResult = analyseOffline(url);
+
+    // ── 5. Connectivity check ────────────────────────────────────────────────
     final connectivity = await Connectivity().checkConnectivity();
-    if (connectivity.every((r) => r == ConnectivityResult.none)) {
+    final isOffline    = connectivity.every((r) => r == ConnectivityResult.none);
+
+    if (isOffline) {
+      // No network — navigate immediately with the offline-only result.
+      // SafePreviewScreen will show the ⚡ PARTIAL SCORE banner.
+      final result = ScanResult.fromOffline(offlineResult);
+      await _ref.read(historyProvider.notifier).add(result);
+
       state = state.copyWith(
-        state:     ScanState.error,
-        errorMsg:  'No internet connection. Please check your network and try again.',
-        statusMsg: 'Offline — tap to retry',
+        state:     ScanState.done,
+        statusMsg: '⚡ Offline score ready — opening results…',
       );
+
+      final prefs      = await SharedPreferences.getInstance();
+      final autoLesson = prefs.getBool('autoLesson') ?? false;
+      if (autoLesson && result.riskScore >= 60) {
+        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
+      } else {
+        _ref.read(_navigateProvider)?.call('/preview', extra: result);
+      }
       return;
     }
 
-    // ── 5. Analysing ─────────────────────────────────────────────────────────
+    // ── 6. Online — show offline score in loader while backend runs ──────────
     state = state.copyWith(
       state:     ScanState.analysing,
-      statusMsg: '✓ QR detected — analysing…',
+      statusMsg: '⚡ Offline: ${offlineResult.riskScore}/100 — fetching full analysis…',
     );
 
     try {
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
       await _ref.read(historyProvider.notifier).add(result);
 
-      // UI-03 FIX: Transition to done with updated statusMsg so the brief
-      // gap between done and navigation shows useful text with the loader
-      // still covering the screen (isLoading includes ScanState.done in
-      // the widget).
       state = state.copyWith(
         state:     ScanState.done,
         statusMsg: '✓ Analysis complete — opening results…',
@@ -210,11 +227,31 @@ class ScannerController extends StateNotifier<ScannerState> {
         _ref.read(_navigateProvider)?.call('/preview', extra: result);
       }
     } on ApiException catch (e) {
-      state = state.copyWith(
-        state:        ScanState.error,
-        apiException: e,
-        statusMsg:    'Analysis failed — tap to retry',
-      );
+      // If this is a network-level failure (no route to host, timeout, etc.)
+      // and we have an offline result, fall back to it instead of hard-failing.
+      // For server-side errors (4xx/5xx) where the backend responded, surface
+      // the ApiException as before so SecurityErrorWidget can show the detail.
+      if (e.isOffline && offlineResult.riskScore > 0) {
+        final result = ScanResult.fromOffline(offlineResult);
+        await _ref.read(historyProvider.notifier).add(result);
+        state = state.copyWith(
+          state:     ScanState.done,
+          statusMsg: '⚡ Backend unreachable — showing offline score…',
+        );
+        final prefs      = await SharedPreferences.getInstance();
+        final autoLesson = prefs.getBool('autoLesson') ?? false;
+        if (autoLesson && result.riskScore >= 60) {
+          _ref.read(_navigateProvider)?.call('/lesson', extra: result);
+        } else {
+          _ref.read(_navigateProvider)?.call('/preview', extra: result);
+        }
+      } else {
+        state = state.copyWith(
+          state:        ScanState.error,
+          apiException: e,
+          statusMsg:    'Analysis failed — tap to retry',
+        );
+      }
     } catch (e) {
       state = state.copyWith(
         state:     ScanState.error,
@@ -995,3 +1032,4 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
+
