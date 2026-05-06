@@ -1,3 +1,4 @@
+
 // lib/features/preview/safe_preview_screen.dart
 //
 // Fixes applied (Batch 3) — only changed sections shown with AUDIT FIX markers.
@@ -82,6 +83,13 @@ class _State extends ConsumerState<SafePreviewScreen> {
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           children: [
+            // ── Partial-score banner ────────────────────────────────────────
+            // Shown only when the result was produced entirely on-device
+            // (no backend call reached). Online pillars (reputation, redirect
+            // depth, HTML evasion, nested shorteners) are absent from this
+            // score. The banner tells the user to re-scan with connectivity.
+            if (r.isPartialScore) const _PartialScoreBanner(),
+
             _RiskHero(
               score:     r.riskScore,
               label:     r.riskLabel,
@@ -280,12 +288,17 @@ class _State extends ConsumerState<SafePreviewScreen> {
               ),
 
              // ── AI Threat Analysis ──────────────────────────────────
-            if (r.aiAnalysis.isNotEmpty &&
+            // Suppressed for offline-only results: aiAnalysis is always
+            // the offline placeholder string, and isPartialScore guards
+            // against accidentally showing it if that string ever changes.
+            if (!r.isPartialScore &&
+                r.aiAnalysis.isNotEmpty &&
                 !{
                   'AI analysis disabled. (GEMINI_API_KEY not set in environment).',
                   'AI analysis unavailable at this time.',
                   'AI analysis timed out.',
                   'No AI analysis provided.',
+                  'AI analysis requires an internet connection.',
                 }.contains(r.aiAnalysis))
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -642,6 +655,83 @@ class _State extends ConsumerState<SafePreviewScreen> {
 }
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
+
+// ── Partial Score Banner ──────────────────────────────────────────────────────
+//
+// Rendered at the top of SafePreviewScreen whenever ScanResult.isPartialScore
+// is true — i.e. the scan completed offline or the backend was unreachable.
+//
+// The banner communicates three things to the user:
+//   1. The score is real but incomplete (4 online pillars are absent).
+//   2. Which pillars are missing (reputation, redirect depth, etc.).
+//   3. A clear call to action: re-scan with connectivity for a full result.
+//
+// Design deliberately avoids the scan result's own risk colour so the banner
+// does not blend into a danger/warning hero and get dismissed as decoration.
+class _PartialScoreBanner extends StatelessWidget {
+  const _PartialScoreBanner();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin:    const EdgeInsets.fromLTRB(16, 16, 16, 4),
+        padding:   const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          // Amber background — distinct from jade/ember, signals "incomplete"
+          color:        AppColors.amber.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(10),
+          border:       Border.all(color: AppColors.amber.withValues(alpha: .35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Icon column
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(Icons.offline_bolt_rounded,
+                  size: 16, color: AppColors.amber),
+            ),
+            const SizedBox(width: 10),
+            // Text column
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title row
+                  Row(
+                    children: [
+                      Text(
+                        'PARTIAL SCORE — OFFLINE ONLY',
+                        style: TextStyle(
+                          fontFamily:    'monospace',
+                          fontSize:      10,
+                          fontWeight:    FontWeight.w700,
+                          color:         AppColors.amber,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  // Body
+                  Text(
+                    '4 online pillars are not included in this score: '
+                    'global reputation (Tranco), redirect depth, '
+                    'HTML evasion, and nested shorteners.\n'
+                    'Re-scan with an internet connection for a full result.',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize:   10,
+                      color:      AppColors.amber.withValues(alpha: .80),
+                      height:     1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+}
 
 class _RiskHero extends StatelessWidget {
   const _RiskHero({
