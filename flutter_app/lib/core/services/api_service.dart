@@ -1,311 +1,474 @@
-          // lib/core/services/api_service.dart
-//
-// Fixes applied (Batch 3):
-//   FLT-02  updateBaseUrl() now validates that the URL uses https:// in release
-//           builds. Accepts http:// only in debug (for local dev servers).
-//           Prevents the settings screen from redirecting all scan data to an
-//           attacker-controlled server via the custom API URL field.
-//   FLT-04  LogInterceptor payload logging disabled. requestBody and
-//           responseBody set to false — URL paths and status codes are
-//           sufficient for debugging without logging scanned URLs, AI analysis
-//           text, or admin JWT tokens to logcat.
-//   FLT-06  admin_token stored and retrieved via flutter_secure_storage instead
-//           of SharedPreferences. On Android this uses the Keystore; on iOS it
-//           uses the Keychain. A stolen device cannot extract the token without
-//           biometric/PIN authentication.
-//   FLT-08  isHealthy() uses warmupTimeout (60s) while all other calls use the
-//           standard receiveTimeout (15s) via AppConstants.
-//   FLT-13  client_scan_id removed from /analyse request body — the backend
-//           never read this field, making it dead payload on every scan.
+"""
+scorer.py — Master Integrated Heuristic Scoring Engine (v2.6.5)
+================================================================
+Core analytical engine for Quishing Guard. Calculates risk scores
+based on 12 security indicators, unrolls nested shorteners, and
+evaluates zero-day infrastructure.
+"""
 
-import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // FLT-06
-import '../models/scan_result.dart';
-import '../utils/app_constants.dart';
-import '../utils/api_exception.dart';
+from __future__ import annotations
+import time
+import re
+import os
+import requests
+import ipaddress
+import tldextract
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, unquote
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
-// ── Secure storage singleton ──────────────────────────────────────────────────
-// AUDIT FIX [FLT-06]: Single instance shared across the service.
-const _secureStorage = FlutterSecureStorage(
-  aOptions: AndroidOptions(encryptedSharedPreferences: true),
-);
-const _tokenKey = 'admin_token';
+# Internal Engine Imports
+from .entropy    import dga_score
+from .reputation import is_highly_trusted
+from .resolver   import resolve, _is_private
+from ..logger    import get_logger
 
-// ── Provider ──────────────────────────────────────────────────────────────────
+log = get_logger("scorer")
 
-final apiServiceProvider = Provider<ApiService>((ref) {
-  final dio = Dio(BaseOptions(
-    baseUrl: const String.fromEnvironment(
-      'API_BASE_URL',
-      defaultValue: AppConstants.defaultApiBaseUrl,
-    ),
-    // AUDIT FIX [FLT-08]: Use the standard timeouts for all calls.
-    // isHealthy() overrides this per-call with warmupTimeout.
-    // Note: timeouts are now 25s as defined in AppConstants.
-    connectTimeout: AppConstants.connectTimeout,
-    receiveTimeout: AppConstants.receiveTimeout,
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept':       'application/json',
-    },
-  ));
+# Single shared executor — limits concurrent AI calls to 4 threads max.
+_AI_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ai_worker")
 
-  // SEC-01: Auth Interceptor — attaches JWT only to /admin paths.
-  // AUDIT FIX [FLT-06]: Read token from secure storage, not SharedPreferences.
-  dio.interceptors.add(InterceptorsWrapper(
-    onRequest: (options, handler) async {
-      if (options.path.contains('/admin')) {
-        final token = await _secureStorage.read(key: _tokenKey); // FLT-06
-        if (token != null) {
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-      }
-      return handler.next(options);
-    },
-  ));
+# ── 1. Configuration & Threat Intelligence ────────────────────────────────────
 
-  // AUDIT FIX [FLT-04]: Disable request/response body logging.
-  // The original interceptor logged every scanned URL, every AI analysis
-  // response, and the admin JWT to logcat — readable by any app with
-  // READ_LOGS on rooted devices. Status codes and paths are sufficient.
-  assert(() {
-    dio.interceptors.add(LogInterceptor(
-      requestBody:  false,   // FLT-04: was true — logged full scan payloads
-      responseBody: false,   // FLT-04: was true — logged AI analysis + JWT
-      requestHeader: false,  // FLT-04: headers contain Authorization bearer
-      responseHeader: false,
-      logPrint: (o) => debugPrint('[DIO] $o'),
-    ));
-    return true;
-  }());
-
-  return ApiService(dio);
-});
-
-// ── Service ───────────────────────────────────────────────────────────────────
-
-class ApiService {
-  const ApiService(this._dio);
-  final Dio _dio;
-
-  // ── Public Endpoints ──────────────────────────────────────────────────────
-
-  Future<ScanResult> analyseUrl(String rawPayload) async {
-    try {
-      // AUDIT FIX [FLT-13]: Removed 'client_scan_id' field — the backend
-      // never reads it. Sending dead payload on every scan is wasteful.
-      final response = await _dio.post('/api/v1/analyse', data: {
-        'url': rawPayload,
-      });
-      return ScanResult.fromJson(response.data as Map<String, dynamic>);
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  /// Uploads an image to the backend for server-side QR decoding and analysis.
-  /// Returns List<ScanResult> with the full analysis for each decoded URL code.
-  Future<List<ScanResult>> scanImage(
-      List<int> imageBytes, String filename) async {
-    try {
-      final formData = FormData.fromMap({
-        'file': MultipartFile.fromBytes(
-          imageBytes,
-          filename: filename,
-          contentType: DioMediaType(
-            'image',
-            filename.endsWith('.png') ? 'png' : 'jpeg',
-          ),
-        ),
-      });
-
-      final response = await _dio.post(
-        '/api/v1/scan-image',
-        data: formData,
-        options: Options(contentType: 'multipart/form-data'),
-      );
-
-      final codes   = response.data['codes'] as List<dynamic>? ?? [];
-      final results = <ScanResult>[];
-
-      for (final code in codes) {
-        if (code is! Map) continue;
-        final analysisData = code['analysis'];
-        if (analysisData is! Map) continue;
-        try {
-          results.add(
-            ScanResult.fromJson(Map<String, dynamic>.from(analysisData)),
-          );
-        } catch (_) {
-          // Malformed analysis entry — skip rather than crash the list.
-        }
-      }
-      return results;
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  Future<void> reportPhishing({
-    required String resolvedUrl,
-    required String reason,
-  }) async {
-    try {
-      await _dio.post('/api/v1/report', data: {
-        'url':    resolvedUrl,
-        'reason': reason,
-      });
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  Future<bool> isHealthy() async {
-    try {
-      // AUDIT FIX [FLT-08]: Override receive timeout for this call only.
-      // Render free-tier cold starts take up to 60 seconds. All other calls
-      // use the standard timeout via AppConstants.
-      final r = await _dio.get(
-        '/api/v1/health',
-        options: Options(receiveTimeout: AppConstants.warmupTimeout),
-      );
-      return r.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // ── Admin Endpoints ────────────────────────────────────────────────────────
-
-  Future<String?> adminLogin(String username, String password) async {
-    try {
-      final r = await _dio.post('/api/v1/auth/login', data: {
-        'username': username,
-        'password': password,
-      });
-      final token = r.data['token'] as String?;
-      if (token != null) {
-        // AUDIT FIX [FLT-06]: Store token in encrypted secure storage.
-        // SharedPreferences is plaintext XML on Android — a rooted device
-        // can read and replay the token for up to 24 hours.
-        await _secureStorage.write(key: _tokenKey, value: token);
-      }
-      return token;
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  /// No-op in the Interceptor architecture; kept for API compatibility.
-  Future<void> loadSavedToken() async {
-    // Fresh token reading is handled by the Interceptor's onRequest.
-  }
-
-  Future<void> adminLogout() async {
-    // AUDIT FIX [FLT-06]: Delete from secure storage.
-    await _secureStorage.delete(key: _tokenKey);
-  }
-
-  Future<Map<String, dynamic>> adminDashboard() async {
-    try {
-      final r = await _dio.get('/api/v1/admin/dashboard');
-      return r.data as Map<String, dynamic>;
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> adminScanLogs() async {
-    try {
-      final response = await _dio.get('/api/v1/admin/scanlogs');
-      final rawList  = response.data['logs'] as List<dynamic>? ?? [];
-      return rawList
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> adminPendingReports() async {
-    try {
-      final r    = await _dio.get('/api/v1/admin/blocklist/pending');
-      final body = r.data is Map ? Map<String, dynamic>.from(r.data as Map) : <String, dynamic>{};
-      final list = (body['pending'] as List<dynamic>?) ?? [];
-      return list
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  Future<void> adminApprove(int id) async {
-    try {
-      await _dio.post('/api/v1/admin/blocklist/approve', data: {'id': id});
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  Future<void> adminReject(int id) async {
-    try {
-      await _dio.post('/api/v1/admin/blocklist/reject', data: {'id': id});
-    } on DioException catch (e) {
-      throw _map(e);
-    }
-  }
-
-  /// AUDIT FIX [FLT-02]: Validates the scheme before accepting the URL.
-  /// In release builds, only https:// is accepted — this prevents the settings
-  /// screen from silently routing all scan data to a plain HTTP or arbitrary
-  /// attacker-controlled server.
-  /// In debug builds, http:// is also accepted for local dev servers.
-  void updateBaseUrl(String url) {
-    final trimmed = url.trimRight().replaceAll(RegExp(r'/+$'), '');
-
-    // FLT-02: Scheme validation.
-    final isHttps = trimmed.startsWith('https://');
-    final isHttp  = trimmed.startsWith('http://');
-
-    if (!isHttps && !isHttp) {
-      // Neither scheme — reject silently; caller shows validation error.
-      debugPrint('[API] updateBaseUrl rejected: no http/https scheme — $trimmed');
-      return;
-    }
-
-    if (!kDebugMode && isHttp) {
-      // Release build: reject plain HTTP to prevent MITM interception of
-      // scanned URLs and admin credentials.
-      debugPrint('[API] updateBaseUrl rejected in release: http:// not allowed.');
-      return;
-    }
-
-    _dio.options.baseUrl = trimmed;
-  }
-
-  // ── Internal Error Mapping ─────────────────────────────────────────────────
-
-  ApiException _map(DioException e) {
-    final data    = e.response?.data;
-    final message = (data is Map) ? data['error'] as String? : null;
-
-    return switch (e.type) {
-      DioExceptionType.connectionTimeout ||
-      DioExceptionType.sendTimeout      ||
-      DioExceptionType.receiveTimeout   =>
-        ApiException('Request timed out.', statusCode: 408, type: ApiErrorType.timeout),
-      DioExceptionType.badResponse => ApiException(
-        message ?? 'Server error (${e.response?.statusCode ?? 500})',
-        statusCode: e.response?.statusCode ?? 500,
-        type: ApiErrorType.server,
-      ),
-      _ => const ApiException('Network error occurred.',
-          statusCode: 0, type: ApiErrorType.network),
-    };
-  }
+_BAD_TLDS = {
+    "ru", "tk", "ml", "ga", "cf", "gq", "top", "xyz", "pw", "cc",
+    "click", "download", "review", "stream", "country", "kim",
+    "live", "online", "site", "website", "space", "fun",
+    "zip", "mov", "app", "shop", "info", "work", "vip", "cfd", "sbs", "icu"
 }
+
+_PHISHING_KEYWORDS = frozenset({
+    "login", "signin", "verify", "validation", "secure", "update", "reactivate",
+    "office365", "outlook", "onedrive", "wp-admin", "identity",
+    "vodafone", "fawry", "cib", "bank", "misr", "instapay", "win-prize",
+    "uaepass", "tamm", "emirates", "dewa", "adcb", "etisalat", "du-mobile",
+    "nafath", "absher", "tawakkalna", "alrajhi", "stc-pay", "saudi-post",
+    "aramex", "dhl", "tracking", "parcel", "delivery", "proxy", "poxy",
+    "proxie", "vpn", "tunnel", "socks", "anon", "bypass", "relay", "mirror",
+    "tor", "darkweb", "hide",
+    "paypal", "apple", "netflix", "amazon", "microsoft", "google", "meta",
+    "cgi-bin", "webscr", "cmd", "billing", "invoice", "refund", "wallet", "account"
+})
+
+_BRAND_KEYWORDS = frozenset({
+    "paypal", "amazon", "google", "microsoft", "apple", "netflix",
+    "facebook", "instagram", "whatsapp", "bank", "secure", "verify",
+    "account", "billing", "support", "login", "signin", "update",
+})
+
+_CRITICAL_OVERRIDE_FLOORS = {
+    "ip_literal":   65,
+    "punycode":     65,
+    "dga_entropy":  62,
+    "nested_short": 65,
+    "html_evasion": 60,
+}
+
+# ── 2. AI Threat Analysis Agent ───────────────────────────────────────────────
+
+def _call_gemini(raw_url: str, resolved_url: str) -> str:
+    """
+    Blocking Gemini call — runs inside _AI_EXECUTOR worker threads.
+    """
+    start_time = time.time()
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return "AI analysis disabled. (GEMINI_API_KEY not set in environment)."
+
+    prompt = (
+        f"You are a cybersecurity expert analyzing a scanned QR code URL. "
+        f"Original URL: '{raw_url}'. Final Destination: '{resolved_url}'. "
+        f"In maximum 2 short sentences, explain if this looks like a phishing/quishing risk and why. "
+        f"Do not use markdown, asterisks, or bold text. Plain text only."
+    )
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH",        "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HARASSMENT",         "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",  "threshold": "BLOCK_NONE"},
+        ],
+        # AI FIX 1: Restrict output tokens and temperature. 
+        # Limits generation length, massively speeding up response times and reducing 503s.
+        "generationConfig": {
+            "maxOutputTokens": 60,
+            "temperature": 0.2
+        }
+    }
+
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        "gemini-flash-latest:generateContent"
+    )
+    _base_headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+    for attempt in range(3):
+        # AI FIX 2: Increased hard abort deadline from 11.5s to 19.5s
+        if time.time() - start_time > 19.5:
+            log.warning("AI background thread aborting: exceeded 19.5 s deadline before attempt %d.", attempt)
+            break
+
+        try:
+            # Increased request timeout from 8s to 10s to give Gemini more buffer
+            resp = requests.post(endpoint, json=payload, headers=_base_headers, timeout=10)
+
+            if resp.status_code == 200:
+                try:
+                    data          = resp.json()
+                    candidates    = data.get("candidates", [])
+                    if not candidates:
+                        return "AI analysis unavailable at this time."
+                    content_parts = candidates[0].get("content", {}).get("parts", [])
+                    if not content_parts:
+                        return "AI analysis unavailable at this time."
+                    return content_parts[0].get("text", "").strip() or "AI analysis unavailable at this time."
+                except (KeyError, IndexError, ValueError) as parse_err:
+                    log.warning("AI response parse error: %s", parse_err)
+                    return "AI analysis unavailable at this time."
+
+            if resp.status_code in (429, 503):
+                wait_time = 1.5 * (attempt + 1)
+
+                # AI FIX 2: Increased pre-sleep deadline guard
+                if time.time() - start_time + wait_time > 19.5:
+                    log.warning(
+                        "AI background thread aborting: %.1f s retry sleep would exceed deadline.",
+                        wait_time,
+                    )
+                    break
+
+                log.info(
+                    "AI Engine busy (%s). Retry %d in %.1f s.",
+                    resp.status_code, attempt + 1, wait_time,
+                )
+                time.sleep(wait_time)
+                continue
+
+            log.error("AI critical error: HTTP %s", resp.status_code)
+            break
+
+        except requests.exceptions.RequestException as e:
+            log.warning("Network error on AI call (attempt %d): %s", attempt + 1, e)
+
+            # AI FIX 2: Increased error back-off deadline guard
+            if time.time() - start_time + 1 > 19.5:
+                log.warning("AI background thread aborting: 1 s error sleep would exceed deadline.")
+                break
+            time.sleep(1)
+
+    return "AI analysis unavailable at this time."
+
+
+def get_ai_insight(raw_url: str, resolved_url: str) -> str:
+    """Submits the Gemini call to a thread pool to prevent blocking."""
+    future = _AI_EXECUTOR.submit(_call_gemini, raw_url, resolved_url)
+    try:
+        # AI FIX 3: Increased the future executor timeout from 12s to 20s
+        return future.result(timeout=20)
+    except FuturesTimeout:
+        log.warning("AI insight timed out after 20 s — returning fallback.")
+        return "AI analysis unavailable at this time."
+    except Exception as e:
+        log.error("AI executor error: %s", e)
+        return "AI analysis unavailable at this time."
+
+
+# ── 3. The Unroller (Redirect & Evasion Logic) ───────────────────────────────
+
+def check_meta_refresh(url: str) -> bool:
+    """Standalone fallback meta-refresh detector with SSRF guard."""
+    from urllib.parse import urlparse as _up
+    host = (_up(url).hostname or "").lower()
+    if not host or _is_private(host):
+        log.warning("check_meta_refresh blocked SSRF attempt to host: %s", host)
+        return False
+
+    try:
+        with requests.get(
+            url, timeout=4, stream=True,
+            headers={"User-Agent": "Mozilla/5.0 QuishingGuard/1.0"}
+        ) as r:
+            chunk = r.raw.read(10000, decode_content=True)
+            soup  = BeautifulSoup(chunk, "html.parser")
+            if soup.find("meta", attrs={"http-equiv": re.compile(r"refresh", re.I)}):
+                return True
+    except (requests.RequestException, OSError):
+        pass
+    return False
+
+
+def trace_redirects(start_url: str) -> dict:
+    """Unmasks the final destination and detects hidden HTML redirects."""
+    res = resolve(start_url)
+
+    tracker_results = {
+        "hop_count":          res.hop_count,
+        "shortener_count":    getattr(res, "shortener_count", 0),
+        "final_url":          res.resolved_url,
+        "meta_refresh_found": getattr(res, "meta_refresh_found", False),
+        "error":              res.error,
+        "redirect_chain":     getattr(res, "redirect_chain", []),
+    }
+
+    # Fallback check if resolver didn't provide the flag
+    if not res.error and not tracker_results["meta_refresh_found"]:
+        if hasattr(res, "meta_refresh_found") is False:
+            tracker_results["meta_refresh_found"] = check_meta_refresh(res.resolved_url)
+
+    return tracker_results
+
+
+# ── 4. The 12-Pillar Scoring Engine ──────────────────────────────────────────
+
+def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
+                trace_data: dict | None = None):
+    """Calculates the 12-pillar risk score for a given URL."""
+    checks = []
+
+    if trace_data is None:
+        trace_data = trace_redirects(url)
+    
+    # FIX: Guard against None final_url when the resolver returns an error.
+    # Passing None to tldextract / urlparse raises AttributeError and crashes the scan.
+    target_url = trace_data.get("final_url") or url
+
+    decoded_url = unquote(target_url).lower()
+    ext         = tldextract.extract(decoded_url)
+    domain      = ext.domain
+    etld1       = f"{ext.domain}.{ext.suffix}" if ext.domain and ext.suffix else ext.domain
+    full_host   = f"{ext.subdomain}.{ext.domain}.{ext.suffix}".strip(".")
+    parsed      = urlparse(decoded_url if "://" in decoded_url else "https://" + decoded_url)
+
+    # 1. Global Reputation (The Gatekeeper)
+    is_trusted = is_highly_trusted(etld1)
+    checks.append({
+        "name":      "reputation",
+        "label":     "GLOBAL REPUTATION",
+        "status":    "SAFE" if is_trusted else "WARNING",
+        "message":   "Domain recognised in the global Tranco Top 100k reputation list. ✓" if is_trusted
+                     else "Domain not found in global reputation database.",
+        "metric":    "Tranco Top 100k" if is_trusted else "",
+        "score":     -50 if is_trusted else 0,
+        "triggered": not is_trusted,
+    })
+
+    # 2. IP Address Literal
+    is_ip = False
+    try:
+        ipaddress.ip_address(full_host)
+        is_ip = True
+    except ValueError:
+        pass
+    checks.append({
+        "name":      "ip_literal",
+        "label":     "IP ADDRESS LITERAL",
+        "status":    "DANGER" if is_ip else "SAFE",
+        "message":   "Link uses a raw IP address instead of a registered domain name." if is_ip
+                     else "Link uses a proper registered domain name. ✓",
+        "metric":    f"Host: {full_host}" if is_ip else "",
+        "score":     25 if is_ip else 0,
+        "triggered": is_ip,
+    })
+
+    # 3. Punycode/Homograph Attack
+    is_puny_encoded  = "xn--" in full_host
+    is_unicode_spoof = not full_host.isascii()
+    is_puny          = is_puny_encoded or is_unicode_spoof
+    checks.append({
+        "name":      "punycode",
+        "label":     "PUNYCODE ATTACK",
+        "status":    "DANGER" if is_puny else "SAFE",
+        "message":   "Punycode (xn--) IDN encoding detected — potential homograph brand impersonation." if is_puny
+                     else "No Punycode IDN encoding detected. ✓",
+        "metric":    f"Host: {full_host}" if is_puny else "",
+        "score":     30 if is_puny else 0,
+        "triggered": is_puny,
+    })
+
+    # 4. DGA Entropy
+    ent_res = dga_score(domain)
+    checks.append({
+        "name":      "dga_entropy",
+        "label":     "DGA ENTROPY ANALYSIS",
+        "status":    "DANGER" if ent_res.is_dga else "SAFE",
+        "message":   f"Domain '{domain}' exhibits machine-generated (DGA) character patterns." if ent_res.is_dga
+                     else "Domain entropy is within normal human-chosen name range. ✓",
+        "metric":    f"Entropy: {ent_res.entropy:.2f} bits  |  Confidence: {ent_res.confidence}",
+        "score":     20 if ent_res.is_dga else 0,
+        "triggered": ent_res.is_dga,
+    })
+
+    # 5. Phishing Keywords (Path Only)
+    path_and_query = (parsed.path + "?" + parsed.query).lower()
+    found_kws      = [kw for kw in _PHISHING_KEYWORDS if kw in path_and_query]
+    checks.append({
+        "name":      "path_keywords",
+        "label":     "PATH KEYWORDS",
+        "status":    "WARNING" if found_kws else "SAFE",
+        "message":   f"Phishing keywords found in URL path: {', '.join(found_kws[:3])}." if found_kws
+                     else "No suspicious phishing keywords found in URL path. ✓",
+        "metric":    f"Matched: {len(found_kws)} keyword(s)" if found_kws else "",
+        "score":     15 if found_kws else 0,
+        "triggered": bool(found_kws),
+    })
+
+    # 6. Nested Shorteners
+    is_nested = trace_data["shortener_count"] >= 2
+    checks.append({
+        "name":      "nested_short",
+        "label":     "NESTED SHORTENERS",
+        "status":    "DANGER" if is_nested else "SAFE",
+        "message":   "Multiple URL shorteners chained together — final destination is deliberately hidden." if is_nested
+                     else "No deceptive shortener nesting detected. ✓",
+        "metric":    f"Shorteners in chain: {trace_data['shortener_count']}" if trace_data["shortener_count"] else "",
+        "score":     40 if is_nested else 0,
+        "triggered": is_nested,
+    })
+
+    # 7. HTML Evasion
+    is_evasion = trace_data["meta_refresh_found"]
+    checks.append({
+        "name":      "html_evasion",
+        "label":     "HTML EVASION",
+        "status":    "DANGER" if is_evasion else "SAFE",
+        "message":   "Hidden HTML meta-refresh redirect detected on the landing page." if is_evasion
+                     else "No hidden HTML redirect tags detected. ✓",
+        "metric":    "Meta-Refresh tag present" if is_evasion else "",
+        "score":     30 if is_evasion else 0,
+        "triggered": is_evasion,
+    })
+
+    # 8. Redirect Depth
+    is_deep = trace_data["hop_count"] >= 3
+    checks.append({
+        "name":      "redirect_depth",
+        "label":     "REDIRECT CHAIN DEPTH",
+        "status":    "WARNING" if is_deep else "SAFE",
+        "message":   "Deep redirect chain detected — potential destination cloaking attempt." if is_deep
+                     else f"{trace_data['hop_count']} redirect hop(s) followed safely. ✓",
+        "metric":    f"Hops: {trace_data['hop_count']}",
+        "score":     20 if is_deep else 0,
+        "triggered": is_deep,
+    })
+
+    # 9. Suspicious TLD
+    is_bad_tld = ext.suffix.lower() in _BAD_TLDS
+    checks.append({
+        "name":      "suspicious_tld",
+        "label":     "SUSPICIOUS TLD",
+        "status":    "WARNING" if is_bad_tld else "SAFE",
+        "message":   f"TLD '.{ext.suffix}' has a statistically elevated phishing and abuse history." if is_bad_tld
+                     else f"TLD '.{ext.suffix}' is a standard low-risk extension. ✓",
+        "metric":    f"TLD: .{ext.suffix}" if is_bad_tld else "",
+        "score":     8 if is_bad_tld else 0,
+        "triggered": is_bad_tld,
+    })
+
+    # 10. Subdomain Nesting
+    sub_depth   = len(ext.subdomain.split(".")) if ext.subdomain else 0
+    is_deep_sub = sub_depth >= 3
+    checks.append({
+        "name":      "subdomain_depth",
+        "label":     "SUBDOMAIN DEPTH",
+        "status":    "WARNING" if is_deep_sub else "SAFE",
+        "message":   "Excessive subdomain nesting detected — common phishing technique to mimic trusted brands." if is_deep_sub
+                     else "Normal subdomain depth. ✓",
+        "metric":    f"Subdomain labels: {sub_depth}" if ext.subdomain else "No subdomains",
+        "score":     8 if is_deep_sub else 0,
+        "triggered": is_deep_sub,
+    })
+
+    # 11. HTTPS Enforcement
+    is_http = parsed.scheme == "http"
+    checks.append({
+        "name":      "https_mismatch",
+        "label":     "HTTPS ENFORCEMENT",
+        "status":    "WARNING" if is_http else "SAFE",
+        "message":   "Link uses unencrypted HTTP — data in transit is not protected." if is_http
+                     else "Link uses encrypted HTTPS protocol. ✓",
+        "metric":    f"Scheme: {parsed.scheme}",
+        "score":     7 if is_http else 0,
+        "triggered": is_http,
+    })
+
+    # 12. Brand Impersonation in Domain
+    domain_lower    = domain.lower()
+    brand_in_domain = any(kw in domain_lower for kw in _BRAND_KEYWORDS)
+    is_brand_spoof  = brand_in_domain and not is_trusted
+    checks.append({
+        "name":      "brand_spoof",
+        "label":     "BRAND IMPERSONATION IN DOMAIN",
+        "status":    "DANGER" if is_brand_spoof else "SAFE",
+        "message":   "Suspicious use of a trusted brand name in an unverified domain." if is_brand_spoof
+                     else "No deceptive brand keywords found in domain. ✓",
+        "metric":    f"Domain: {domain}" if is_brand_spoof else "",
+        "score":     25 if is_brand_spoof else 0,
+        "triggered": is_brand_spoof,
+    })
+
+    # ── PHASE 4: FINAL AGGREGATION ────────────────────────────────────────────
+
+    raw_score = sum(c["score"] for c in checks)
+
+    non_reputation_triggered = sum(
+        1 for c in checks
+        if c["triggered"] and c["name"] != "reputation" and c["score"] > 0
+    )
+
+    if is_trusted and not is_puny:
+        risk_score = max(0, min(raw_score, 10))
+    else:
+        risk_score = max(0, min(100, raw_score))
+
+    if non_reputation_triggered >= 2:
+        risk_score = max(risk_score, 35)
+
+    for c in checks:
+        if c["triggered"] and c["name"] in _CRITICAL_OVERRIDE_FLOORS:
+            risk_score = max(risk_score, _CRITICAL_OVERRIDE_FLOORS[c["name"]])
+
+    if allowlisted:
+        risk_score = 0
+    elif blocklisted:
+        risk_score = 100
+
+    final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
+
+    # ZERO-TRUST FLOOR: Apply warning floor if completely unknown with no triggers
+    if not is_trusted and not allowlisted and non_reputation_triggered == 0:
+        risk_score  = max(risk_score, 15)
+        final_label = "warning"
+
+    triggered_checks = [c for c in checks if c["triggered"] and c["score"] > 0]
+    top_threat       = max(triggered_checks, key=lambda c: c["score"])["label"] if triggered_checks else "None"
+
+    # FIX: Skip AI for allowlisted/blocklisted URLs — verdict is already final.
+    # Calling Gemini for these wastes quota and adds 3–12 s of unnecessary latency.
+    if allowlisted or blocklisted:
+        ai_text = ""
+    else:
+        ai_text = get_ai_insight(url, target_url)
+
+    return {
+        "url":                url,
+        "resolved_url":       target_url,
+        "risk_score":         risk_score,
+        "risk_label":         final_label,
+        "top_threat":         top_threat,
+        "redirect_chain":     trace_data.get("redirect_chain", []),
+        "hop_count":          trace_data.get("hop_count", 0),
+        "is_allowlisted":     allowlisted,
+        "is_blocklisted":     blocklisted,
+        "is_trusted":         is_trusted,
+        "checks":             checks,
+        "overall_assessment": (
+            "Trusted high-traffic domain." if is_trusted and risk_score < 30
+            else "Unverified infrastructure. Proceed with caution." if not is_trusted and risk_score < 30
+            else f"Analysis suggests {final_label.upper()}."
+        ),
+        "ai_analysis":        ai_text,
+    }
+
