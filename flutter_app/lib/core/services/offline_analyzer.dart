@@ -145,6 +145,11 @@ const double _kNormWarn            = 0.92;  // entropy.py: NORM_WARN
 const double _kDigitRatioThreshold = 0.40;  // entropy.py: DIGIT_RATIO_THRESHOLD (F-06)
 const int    _kAlphabetSize        = 36;    // entropy.py: a-z(26) + 0-9(10)
 
+/// log₂(x) = ln(x) / ln(2) — dart:math exposes only natural log.
+/// Defined here, before [_kHMaxAbsolute], so dart2js never needs a
+/// forward reference from a top-level variable initializer.
+double _log2(double x) => math.log(x) / math.ln2;
+
 /// H_MAX_ABSOLUTE = log2(36) ≈ 5.16993 bits
 /// FIX C-2: constant based on alphabet size, NOT on string length.
 final double _kHMaxAbsolute = _log2(_kAlphabetSize.toDouble());
@@ -995,3 +1000,4 @@ String _buildAssessment(
   return 'Unverified infrastructure. Proceed with caution. '
       '(Partial offline score — online pillars pending.)';
 }
+
