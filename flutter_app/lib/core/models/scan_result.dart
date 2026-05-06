@@ -8,6 +8,7 @@
 //           renames the pillar. Now uses this dedicated parsed field instead.
 
 import 'package:uuid/uuid.dart';
+import '../services/offline_analyzer.dart';
 
 // ── SecurityCheck ────────────────────────────────────────────────────────────
 
@@ -110,6 +111,10 @@ class ScanResult {
     // matching in SafePreviewScreen. Parsed from backend 'is_trusted' key.
     this.isTrusted = false,
     this.reported = false,
+    // True when the result was produced entirely from offline analysis.
+    // The preview screen uses this to show the partial-score banner and
+    // suppress the AI-analysis card.
+    this.isPartialScore = false,
   });
 
   final String id;
@@ -128,6 +133,7 @@ class ScanResult {
   final bool isBlocklisted;
   final bool isTrusted;      // FLT-09
   bool reported;
+  final bool isPartialScore; // true ↔ built from offline-only analysis
 
   // Convenience getters for UI logic
   bool get isSafe    => riskScore < 30;
@@ -142,6 +148,50 @@ class ScanResult {
           ? '${resolvedUrl.substring(0, 40)}…'
           : resolvedUrl;
     }
+  }
+
+  // ── Offline-to-ScanResult bridge ─────────────────────────────────────────
+  //
+  // Converts an [OfflineAnalysisResult] (14-pillar on-device score) into a
+  // [ScanResult] so the existing SafePreviewScreen can render it unchanged.
+  // [isPartialScore] is forced to true so the preview banner is always shown.
+  //
+  // Fields that require a backend or network call are set to safe defaults:
+  //   • resolvedUrl  — same as url (no redirect following offline)
+  //   • redirectChain — empty
+  //   • hopCount     — 0
+  //   • aiAnalysis   — placeholder string
+  //   • isTrusted    — mapped from isTrustedOffline (built-in allowlist only)
+  factory ScanResult.fromOffline(OfflineAnalysisResult offline) {
+    return ScanResult(
+      id:            const Uuid().v4(),
+      url:           offline.url,
+      resolvedUrl:   offline.url,
+      riskScore:     offline.riskScore,
+      riskLabel:     offline.riskLabel,
+      topThreat:     offline.topThreat,
+      isAllowlisted: offline.isAllowlisted,
+      isBlocklisted: offline.isBlocklisted,
+      isTrusted:     offline.isTrustedOffline,
+      hopCount:      0,
+      overallAssessment: offline.overallAssessment,
+      aiAnalysis:    'AI analysis requires an internet connection.',
+      scannedAt:     DateTime.now(),
+      redirectChain: const [],
+      checks: offline.checks
+          .map((c) => SecurityCheck(
+                name:      c.name,
+                label:     c.label,
+                status:    c.status,
+                triggered: c.triggered,
+                score:     c.score,
+                message:   c.message,
+                metric:    c.metric,
+              ))
+          .toList(),
+      reported:      false,
+      isPartialScore: true,
+    );
   }
 
   factory ScanResult.fromJson(Map<String, dynamic> j) {
@@ -201,6 +251,7 @@ class ScanResult {
       // history items always reloaded as un-reported even after the user
       // had flagged them. Now we parse it from the persisted JSON.
       reported: j['reported'] == true,
+      isPartialScore: j['is_partial_score'] == true,
     );
   }
 
@@ -221,5 +272,6 @@ class ScanResult {
         'redirect_chain':   redirectChain,
         'checks':           checks.map((c) => c.toJson()).toList(),
         'reported':         reported,
+        'is_partial_score': isPartialScore,
       };
 }
