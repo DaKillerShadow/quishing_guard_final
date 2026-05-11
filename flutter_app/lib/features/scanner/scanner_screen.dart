@@ -9,6 +9,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart'; // Added for DioException catch
 
 import '../../core/models/scan_result.dart';
 import '../../core/services/api_service.dart';
@@ -113,10 +114,6 @@ class ScannerController extends StateNotifier<ScannerState> {
   void setTorch(bool isOn) => state = state.copyWith(torchOn: isOn);
 
   void onDetect(BarcodeCapture capture) {
-    // UI-02 FIX: State guard prevents concurrent scans without stopping the
-    // camera. Previously _stopCamera() was called here, which turned the
-    // MobileScanner preview black. Now the camera stays live and new
-    // detections are simply ignored while a scan is already in progress.
     if (state.state == ScanState.analysing ||
         state.state == ScanState.scanning  ||
         state.state == ScanState.done) return;
@@ -136,6 +133,37 @@ class ScannerController extends StateNotifier<ScannerState> {
   }
 
   Future<void> analyzeDemo(String url) async => _analyse(url);
+
+  // Helper method to execute offline fallback
+  void _runOfflineFallback(String url) async {
+    debugPrint('Initiating offline fallback for: $url');
+    try {
+      final ScanResult offlineResult = OfflineAnalyzer().analyze(url);
+      offlineResult.isOffline = true; // Flag for the UI
+      
+      await _ref.read(historyProvider.notifier).add(offlineResult);
+
+      state = state.copyWith(
+        state:     ScanState.done,
+        statusMsg: '⚡ Backend unreachable — showing offline score…',
+      );
+
+      final prefs      = await SharedPreferences.getInstance();
+      final autoLesson = prefs.getBool('autoLesson') ?? false;
+      if (autoLesson && offlineResult.riskScore >= 60) {
+        _ref.read(_navigateProvider)?.call('/lesson', extra: offlineResult);
+      } else {
+        _ref.read(_navigateProvider)?.call('/preview', extra: offlineResult);
+      }
+    } catch (offlineError) {
+      debugPrint('Offline engine failure: $offlineError');
+      state = state.copyWith(
+        state:     ScanState.error,
+        errorMsg:  'Analysis failed entirely. Please try again.',
+        statusMsg: 'Analysis failed — tap to retry',
+      );
+    }
+  }
 
   Future<void> _analyse(String rawUrl) async {
     final lower = rawUrl.toLowerCase();
@@ -173,14 +201,10 @@ class ScannerController extends StateNotifier<ScannerState> {
         ? rawUrl
         : 'https://$rawUrl';
 
-    // ── 4. Run offline analysis — synchronous, zero network, ~<1 ms ─────────
-    // This fires before any connectivity check so the app always has a
-    // preliminary score to show, regardless of network state.
-    final offlineResult = analyseOffline(url);
-    
+    // ── 4. Initial state ─────────────────────────────────────────────────────
     state = state.copyWith(
       state:     ScanState.analysing,
-      statusMsg: '⚡ Running offline analysis…',
+      statusMsg: '⚡ Running analysis…',
     );
 
     // ── 5. Connectivity check ────────────────────────────────────────────────
@@ -188,34 +212,20 @@ class ScannerController extends StateNotifier<ScannerState> {
     final isOffline    = connectivity.every((r) => r == ConnectivityResult.none);
 
     if (isOffline) {
-      // No network — navigate immediately with the offline-only result.
-      // SafePreviewScreen will show the ⚡ PARTIAL SCORE banner.
-      final result = ScanResult.fromOffline(offlineResult);
-      await _ref.read(historyProvider.notifier).add(result);
-
-      state = state.copyWith(
-        state:     ScanState.done,
-        statusMsg: '⚡ Offline score ready — opening results…',
-      );
-
-      final prefs      = await SharedPreferences.getInstance();
-      final autoLesson = prefs.getBool('autoLesson') ?? false;
-      if (autoLesson && result.riskScore >= 60) {
-        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
-      } else {
-        _ref.read(_navigateProvider)?.call('/preview', extra: result);
-      }
+      _runOfflineFallback(url);
       return;
     }
 
-    // ── 6. Online — show offline score in loader while backend runs ──────────
-    state = state.copyWith(
-      state:     ScanState.analysing,
-      statusMsg: '⚡ Offline: ${offlineResult.riskScore}/100 — fetching full analysis…',
-    );
-
+    // ── 6. Online Analysis with Robust Fallback ──────────────────────────────
     try {
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
+      
+      // Failsafe: If service returns an error string instead of throwing
+      if (result.error != null && result.error!.toLowerCase().contains('network')) {
+         _runOfflineFallback(url);
+         return;
+      }
+      
       await _ref.read(historyProvider.notifier).add(result);
 
       state = state.copyWith(
@@ -231,38 +241,16 @@ class ScannerController extends StateNotifier<ScannerState> {
       } else {
         _ref.read(_navigateProvider)?.call('/preview', extra: result);
       }
+
+    } on DioException catch (e) {
+      debugPrint('Backend unreachable (Dio): $e');
+      _runOfflineFallback(url);
     } on ApiException catch (e) {
-      // If this is a network-level failure (no route to host, timeout, etc.)
-      // and we have an offline result, fall back to it instead of hard-failing.
-      // For server-side errors (4xx/5xx) where the backend responded, surface
-      // the ApiException as before so SecurityErrorWidget can show the detail.
-      if (e.isOffline) {
-        final result = ScanResult.fromOffline(offlineResult);
-        await _ref.read(historyProvider.notifier).add(result);
-        state = state.copyWith(
-          state:     ScanState.done,
-          statusMsg: '⚡ Backend unreachable — showing offline score…',
-        );
-        final prefs      = await SharedPreferences.getInstance();
-        final autoLesson = prefs.getBool('autoLesson') ?? false;
-        if (autoLesson && result.riskScore >= 60) {
-          _ref.read(_navigateProvider)?.call('/lesson', extra: result);
-        } else {
-          _ref.read(_navigateProvider)?.call('/preview', extra: result);
-        }
-      } else {
-        state = state.copyWith(
-          state:        ScanState.error,
-          apiException: e,
-          statusMsg:    'Analysis failed — tap to retry',
-        );
-      }
+      debugPrint('Backend unreachable (Api): $e');
+      _runOfflineFallback(url);
     } catch (e) {
-      state = state.copyWith(
-        state:     ScanState.error,
-        errorMsg:  e.toString(),
-        statusMsg: 'Analysis failed — tap to retry',
-      );
+      debugPrint('Backend unreachable (General): $e');
+      _runOfflineFallback(url);
     }
   }
 
@@ -299,7 +287,6 @@ class ScannerController extends StateNotifier<ScannerState> {
       return;
     }
 
-    // Native path unchanged below
     final controller = MobileScannerController();
     try {
       final capture = await controller.analyzeImage(image.path);
@@ -328,7 +315,6 @@ class ScannerController extends StateNotifier<ScannerState> {
   void reset() {
     _lastCode = null;
     state     = const ScannerState();
-    // Transition to idle triggers _startCamera() in the widget's ref.listen.
   }
 }
 
@@ -358,12 +344,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       formats:        [BarcodeFormat.qrCode],
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // UI-04 FIX: The callback is now async and awaits context.push().
-      // When the user pops /preview or /lesson, push() completes and
-      // reset() is called here, transitioning state to idle. ref.listen
-      // below detects idle and calls _startCamera().
-      // Previously: synchronous callback → push() was fire-and-forget →
-      // state stayed at ScanState.done after pop → camera never restarted.
       ref.read(_navigateProvider.notifier).state = (path, {extra}) async {
         if (!mounted) return;
         await context.push(path, extra: extra);
@@ -406,8 +386,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     _cam.dispose();
     super.dispose();
   }
-
-  // ── Demo Menu ──────────────────────────────────────────────────────────────
 
   void _showDemoMenu(BuildContext context) {
     final demos = [
@@ -473,39 +451,24 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     );
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerStateProvider);
-
-    // UI-03 FIX: isLoading is true for both analysing and done.
-    // The gap between done and the navigation push() completing is typically
-    // 1–2 frames but visually significant — the loader must stay up for it.
     final isLoading = scanState.state == ScanState.analysing ||
                       scanState.state == ScanState.done;
-    final hasError  = scanState.apiException != null;
+    final hasError  = scanState.apiException != null || scanState.errorMsg != null;
 
     ref.listen<ScannerState>(scannerStateProvider, (previous, next) {
       if (previous?.state != next.state) {
-        // UI-02 FIX: ScanState.analysing removed from the stop list.
-        // Camera stays live during analysis so QGLoader renders over a real
-        // camera feed instead of a black void.
-        // Gallery (scanning) still stops the camera — unavoidable because
-        // analyzeImage() needs exclusive controller access.
-        // WiFi still stops — the sheet covers the preview anyway.
         if (next.state == ScanState.scanning ||
             next.state == ScanState.wifi) {
           _stopCamera();
         }
-        // UI-04 FIX: idle transition is triggered by reset() after push()
-        // returns — this is the signal to restart the camera.
         if (next.state == ScanState.idle) {
           _startCamera();
         }
       }
 
-      // WiFi sheet: opened from widget so BuildContext stays in the UI layer.
       if (next.state == ScanState.wifi && next.wifiInfo != null) {
         showModalBottomSheet<void>(
           context: context,
@@ -517,15 +480,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         ).whenComplete(
             () => ref.read(scannerStateProvider.notifier).reset());
       }
-
-      // Non-API errors → SnackBar.
-      if (next.apiException == null && next.errorMsg != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content:         Text(next.errorMsg!),
-              backgroundColor: AppColors.ember),
-        );
-      }
     });
 
     return Scaffold(
@@ -533,10 +487,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-
-          // ── L0: Camera preview ─────────────────────────────────────────────
-          // Camera stays running during analysis (UI-02). QGLoader (L4) sits on
-          // top with a solid dark overlay — cyan spinner is clearly visible.
           Positioned.fill(
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(
@@ -549,14 +499,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               ),
             ),
           ),
-
-          // ── L1: Scan-line overlay ───────────────────────────────────────────
-          // Hidden while loading — prevents the animated line from running
-          // over the QGLoader, which would look broken.
           if (!isLoading && !hasError)
             const Positioned.fill(child: ScanOverlay()),
-
-          // ── L2: Top bar ─────────────────────────────────────────────────────
           if (!hasError)
             SafeArea(
               child: Column(
@@ -612,8 +556,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                 ],
               ),
             ),
-
-          // ── L3: Bottom status + buttons ─────────────────────────────────────
           if (!hasError)
             Positioned(
               left:   0,
@@ -635,7 +577,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Status chip
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 8),
@@ -659,7 +600,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         ),
                       ),
                       const SizedBox(height: 14),
-                      // Action buttons
                       Row(
                         children: [
                           Expanded(
@@ -691,7 +631,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // Footer
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
@@ -704,12 +643,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                               child: Text(
                                 '<\\Engineered by Mohamed Abdelfattah | Graduation Project 2026/>',
                                 textAlign:  TextAlign.center,
-                                overflow:   TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontFamily:    'monospace',
                                   fontSize:      9,
-                                  color:         AppColors.muted
-                                      .withValues(alpha: 0.7),
+                                  color:         AppColors.muted.withValues(alpha: 0.7),
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -722,14 +659,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                 ),
               ),
             ),
-
-          // ── L4: QGLoader ────────────────────────────────────────────────────
-          // Covers L0–L3. Camera is live underneath, making the spinner visible.
-          // Stays up through both analysing AND done (UI-03 fix).
           if (isLoading) const Positioned.fill(child: QGLoader()),
-
-          // ── L5: Security error widget ───────────────────────────────────────
-          if (hasError)
+          if (hasError && scanState.apiException != null)
             Positioned.fill(
               child: SecurityErrorWidget(
                 exception: scanState.apiException!,
@@ -737,6 +668,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                     ref.read(scannerStateProvider.notifier).reset(),
               ),
             ),
+          if (hasError && scanState.apiException == null)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(scanState.errorMsg ?? 'Unknown Error', 
+                       style: const TextStyle(color: Colors.white)),
+                  TextButton(
+                    onPressed: () => ref.read(scannerStateProvider.notifier).reset(),
+                    child: const Text('Retry'),
+                  )
+                ],
+              ),
+            )
         ],
       ),
     );
@@ -768,8 +713,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     );
   }
 }
-
-// ── Internal Helpers ──────────────────────────────────────────────────────────
 
 class _TopChip extends StatelessWidget {
   final String icon, label;
@@ -864,8 +807,6 @@ class _CtrlBtn extends StatelessWidget {
       );
 }
 
-// ── WiFi Credential Sheet ─────────────────────────────────────────────────────
-
 class _WifiSheet extends StatefulWidget {
   const _WifiSheet({required this.info});
   final WifiInfo info;
@@ -889,7 +830,6 @@ class _WifiSheetState extends State<_WifiSheet> {
           mainAxisSize:       MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(children: [
               Container(
                 padding: const EdgeInsets.all(10),
@@ -918,18 +858,14 @@ class _WifiSheetState extends State<_WifiSheet> {
                 ),
               ),
             ]),
-
             const SizedBox(height: 20),
             const Divider(color: Color(0xFF2A2B36)),
             const SizedBox(height: 16),
-
-            // Fields
             _WifiRow(label: 'Network Name', value: info.ssid, copyable: true),
             const SizedBox(height: 12),
             _WifiRow(
                 label: 'Security',
                 value: info.type.isEmpty ? 'None' : info.type),
-
             if (hasPassword) ...[
               const SizedBox(height: 12),
               _WifiRow(
@@ -945,10 +881,7 @@ class _WifiSheetState extends State<_WifiSheet> {
               const SizedBox(height: 12),
               _WifiRow(label: 'Password', value: 'No password required'),
             ],
-
             const SizedBox(height: 24),
-
-            // Copy button
             if (hasPassword)
               SizedBox(
                 width: double.infinity,
