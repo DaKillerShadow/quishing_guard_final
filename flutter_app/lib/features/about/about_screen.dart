@@ -1,3 +1,18 @@
+// lib/features/about/about_screen.dart
+//
+// Fixes applied (v23 audit):
+//   A-1  Pillar count corrected: "11-pillar" → "12-pillar" in body text and
+//        section header. brand_spoof was added to scorer.py in Batch 2 but
+//        the About screen was never updated.
+//   A-2  html_evasion score corrected: "25 pts" → "30 pts"
+//        (scorer.py: `"score": 30 if is_evasion else 0`)
+//   A-3  nested_short score corrected: "20 pts" → "40 pts"
+//        (scorer.py: `"score": 40 if is_nested else 0`)
+//   A-4  brand_spoof pillar row added (25 pts).
+//   A-5  withOpacity() replaced with withValues(alpha:) — withOpacity is
+//        deprecated in Flutter 3.27+ and inconsistent with the rest of the codebase.
+//   A-6  Python version corrected: "3.12" → "3.11" (render.yaml: PYTHON_VERSION 3.11.8)
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -42,7 +57,7 @@ class AboutScreen extends StatelessWidget {
                     const Text('🛡', style: TextStyle(fontSize: 32)),
                     const SizedBox(width: 12),
                     Column(
-                      crossAxisAlignment: CrossAxisAlignment.start, 
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           AppConstants.appName,
@@ -51,12 +66,11 @@ class AboutScreen extends StatelessWidget {
                             fontWeight: FontWeight.w800, color: AppColors.arc,
                           ),
                         ),
-                        // ✅ TAGLINE INTEGRATED HERE
                         Text(
-                          AppConstants.tagline, // "Scan Before You Land"
+                          AppConstants.tagline,
                           style: const TextStyle(
-                            fontSize: 12, 
-                            color: AppColors.arc, 
+                            fontSize: 12,
+                            color: AppColors.arc,
                             fontWeight: FontWeight.w600,
                             fontStyle: FontStyle.italic,
                           ),
@@ -65,15 +79,16 @@ class AboutScreen extends StatelessWidget {
                           'v${AppConstants.appVersion}',
                           style: const TextStyle(fontSize: 11, color: AppColors.muted),
                         ),
-                      ]
+                      ],
                     ),
                   ]),
                   const SizedBox(height: 16),
                   const Text(
+                    // A-1: corrected "11-pillar" → "12-pillar"
                     'Quishing Guard is a proactive Zero-Trust security system designed to '
                     'neutralize QR code phishing (quishing) before it reaches the browser. '
                     'Utilizing a hybrid-detection architecture, it combines a blazing-fast, '
-                    '11-pillar deterministic heuristic engine with contextual Large Language '
+                    '12-pillar deterministic heuristic engine with contextual Large Language '
                     'Model (LLM) analysis to provide real-time, military-grade risk assessments.',
                     style: TextStyle(
                       fontFamily: 'monospace', fontSize: 12,
@@ -99,7 +114,8 @@ class AboutScreen extends StatelessWidget {
             _section('TECHNICAL STACK'),
             _infoCard([
               _infoRow('Frontend',  'Flutter 3.22 · Dart 3.3 · Riverpod'),
-              _infoRow('Backend',   'Python 3.12 · Flask 3.0 · BeautifulSoup'),
+              // A-6: corrected Python version from 3.12 → 3.11 (render.yaml: PYTHON_VERSION 3.11.8)
+              _infoRow('Backend',   'Python 3.11 · Flask 3.0 · BeautifulSoup'),
               _infoRow('AI Engine', 'Google Gemini 1.5 Flash (LLM)'),
               _infoRow('Scanner',   'Google ML Kit (mobile_scanner)'),
               _infoRow('Theory',    'Information Theory · Shannon Entropy'),
@@ -107,7 +123,8 @@ class AboutScreen extends StatelessWidget {
             const SizedBox(height: 16),
 
             // ── Heuristic Checks ──────────────────────────────
-            _section('HYBRID ENGINE — 11 PILLARS & AI'),
+            // A-1: corrected "11 PILLARS" → "12 PILLARS"
+            _section('HYBRID ENGINE — 12 PILLARS & AI'),
             Container(
               decoration: BoxDecoration(
                 color: AppColors.panel,
@@ -116,16 +133,20 @@ class AboutScreen extends StatelessWidget {
               ),
               child: Column(children: [
                 _checkRow('Global Reputation', 'Zero-Day', 'Tranco Top 100k cross-reference'),
-                _checkRow('HTML Evasion',      '25 pts', 'Client-side <meta refresh> scraping'),
-                _checkRow('Nested Shorteners', '20 pts', 'Unrolls bit.ly/TinyURL chains'),
-                _checkRow('Punycode / IDN',    '30 pts', 'Visual brand impersonation detection'),
-                _checkRow('IP Literal Host',   '25 pts', 'Raw IP detection (SSRF / evasion)'),
-                _checkRow('DGA Entropy Ratio', '20 pts', 'Normalized H/H_max > 0.85 (DGA)'),
-                _checkRow('Redirect Depth',    '20 pts', '3+ hidden hop chain analysis'),
-                _checkRow('Path Keywords',     '15 pts', 'Regional phishing lure detection'),
-                _checkRow('Suspicious TLD',    '8 pts', 'High-abuse registry classification'),
-                _checkRow('Subdomain Depth',   '8 pts', 'Excessive label nesting (> 3)'),
-                _checkRow('HTTPS Enforcement', '7 pts', 'Encryption status & protocol safety'),
+                // A-3: corrected nested_short from "20 pts" → "40 pts"
+                _checkRow('Nested Shorteners', '40 pts',  'Unrolls bit.ly/TinyURL chains'),
+                // A-2: corrected html_evasion from "25 pts" → "30 pts"
+                _checkRow('HTML Evasion',      '30 pts',  'Client-side <meta refresh> scraping'),
+                _checkRow('Punycode / IDN',    '30 pts',  'Visual brand impersonation detection'),
+                _checkRow('IP Literal Host',   '25 pts',  'Raw IP detection (SSRF / evasion)'),
+                // A-4: brand_spoof pillar — was entirely missing
+                _checkRow('Brand Impersonation', '25 pts', 'Lookalike domain of known brand'),
+                _checkRow('DGA Entropy Ratio', '20 pts',  'Normalized H/H_max > 0.85 (DGA)'),
+                _checkRow('Redirect Depth',    '20 pts',  '3+ hidden hop chain analysis'),
+                _checkRow('Path Keywords',     '15 pts',  'Regional phishing lure detection'),
+                _checkRow('Suspicious TLD',    '8 pts',   'High-abuse registry classification'),
+                _checkRow('Subdomain Depth',   '8 pts',   'Excessive label nesting (> 3)'),
+                _checkRow('HTTPS Enforcement', '7 pts',   'Encryption status & protocol safety'),
               ]),
             ),
             const SizedBox(height: 32),
@@ -185,9 +206,10 @@ class AboutScreen extends StatelessWidget {
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: AppColors.arc.withOpacity(0.08),
+          // A-5: withOpacity() deprecated — replaced with withValues(alpha:)
+          color:  AppColors.arc.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: AppColors.arc.withOpacity(0.2)),
+          border: Border.all(color: AppColors.arc.withValues(alpha: 0.2)),
         ),
         child: Text(pts, style: const TextStyle(
           fontFamily: 'monospace', fontSize: 10,
