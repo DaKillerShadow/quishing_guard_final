@@ -153,6 +153,49 @@ class AdminScreen extends ConsumerWidget {
                               'Rejected: ${entry['domain'] ?? 'Unknown'}')));
                     }
                   },
+                  // AUDIT FIX [L-1]: Wire the new adminDelete() client method.
+                  // The backend DELETE /api/v1/admin/blocklist/<id> route has
+                  // existed since Batch 2 but was unreachable from the UI.
+                  onDelete: () async {
+                    final int id =
+                        int.tryParse(entry['id']?.toString() ?? '0') ?? 0;
+                    // Confirm before hard-deleting — this is irreversible.
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        backgroundColor: AppColors.panel,
+                        title: const Text('Delete Entry',
+                            style: TextStyle(color: AppColors.textColor)),
+                        content: Text(
+                          'Permanently delete "${entry['domain'] ?? 'this entry'}"?\n'
+                          'This cannot be undone.',
+                          style: const TextStyle(
+                              fontSize: 13, color: AppColors.muted),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('CANCEL',
+                                style: TextStyle(color: AppColors.muted)),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: const Text('DELETE',
+                                style: TextStyle(color: AppColors.ember)),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
+                    await ref.read(apiServiceProvider).adminDelete(id);
+                    ref.invalidate(_pendingProvider);
+                    ref.invalidate(_dashboardProvider);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(
+                              'Deleted: ${entry['domain'] ?? 'Unknown'}')));
+                    }
+                  },
                 );
               }).toList(),
             );
@@ -243,11 +286,21 @@ class _TrendBar extends StatelessWidget {
   }
 }
 
+// AUDIT FIX [L-1]: Added required onDelete parameter and a delete IconButton
+// in the card header row.  Previously the card had no way to trigger a
+// hard-delete — the backend route was a dead endpoint from the client's
+// perspective.
 class _PendingCard extends StatelessWidget {
-  const _PendingCard(
-      {required this.entry, required this.onApprove, required this.onReject});
+  const _PendingCard({
+    required this.entry,
+    required this.onApprove,
+    required this.onReject,
+    required this.onDelete, // L-1: new required callback
+  });
+
   final Map<String, dynamic> entry;
-  final VoidCallback onApprove, onReject;
+  final VoidCallback onApprove, onReject, onDelete;
+
   @override
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 10),
@@ -273,6 +326,23 @@ class _PendingCard extends StatelessWidget {
             const Spacer(),
             Text(entry['added_at']?.toString() ?? '',
                 style: const TextStyle(fontSize: 9, color: AppColors.muted)),
+            // AUDIT FIX [L-1]: Delete button — calls the backend hard-delete
+            // route via adminDelete().  Placed in the header row so it is
+            // visually separate from the BLOCK/REJECT action buttons below and
+            // consistent with standard "card-level action" conventions.
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: onDelete,
+              borderRadius: BorderRadius.circular(4),
+              child: const Padding(
+                padding: EdgeInsets.all(4),
+                child: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 16,
+                  color: AppColors.ember,
+                ),
+              ),
+            ),
           ]),
           const SizedBox(height: 10),
           Text(entry['domain']?.toString() ?? 'Unknown Domain',
@@ -323,4 +393,62 @@ class _ErrorTile extends StatelessWidget {
             style: const TextStyle(
                 fontFamily: 'monospace', fontSize: 11, color: AppColors.ember)),
       );
-}
+}services:
+  - type: web
+    name: quishing-guard-api
+    env: python
+    plan: starter # Upgraded from free
+    
+    # 1. Faster builds & explicit Python version
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    # 2. FIXED: Pre-deploy command handles DB tables and Seeding
+    # This runs ONCE per deploy before the web server goes live.
+    preDeployCommand: "python -c 'from app import create_app, db; from app.engine.reputation import seed_database; app=create_app(); ctx=app.app_context(); ctx.push(); db.create_all(); seed_database()'"
+    
+    # 3. Optimized for 512MB RAM
+    startCommand: gunicorn -w 1 --timeout 90 -b 0.0.0.0:$PORT "app:create_app()"
+    
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: quishing-guard-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.11.8 # Stick to a stable version for production
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: JWT_EXPIRY_HOURS
+        value: "24"
+      - key: MAX_REDIRECT_HOPS
+        value: "10"
+      - key: RESOLVER_TIMEOUT
+        value: "5"
+      - key: CORS_ORIGINS
+        value: "https://mohamed-abdelfattah-h.github.io" # Updated to your likely GH handle
+      - key: LOG_LEVEL
+        value: INFO
+      # AUDIT FIX [C-1]: GEMINI_API_KEY was entirely absent from render.yaml.
+      # Every production scan returned "AI analysis disabled." silently because
+      # scorer.py line 90 guards on os.environ.get("GEMINI_API_KEY").
+      # Set the actual key value in the Render dashboard — never commit it.
+      - key: GEMINI_API_KEY
+        sync: false
+      # TRUSTED_PROXY_COUNT: tells get_real_client_ip() how many upstream
+      # proxies to trust when reading X-Forwarded-For (limiter.py).
+      # Render places exactly one load balancer in front of the web service,
+      # so this value is correct for the documented deployment target.
+      # Override to 0 in local dev (no proxy in front of gunicorn).
+      - key: TRUSTED_PROXY_COUNT
+        value: "1"
+
+# Persistent PostgreSQL
+databases:
+  - name: quishing-guard-db
+    plan: starter # Matches your service plan for better performance
