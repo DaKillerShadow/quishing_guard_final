@@ -223,11 +223,6 @@ def trace_redirects(start_url: str) -> dict:
         "redirect_chain":     getattr(res, "redirect_chain", []),
     }
 
-    # Fallback check if resolver didn't provide the flag
-    if not res.error and not tracker_results["meta_refresh_found"]:
-        if hasattr(res, "meta_refresh_found") is False:
-            tracker_results["meta_refresh_found"] = check_meta_refresh(res.resolved_url)
-
     return tracker_results
 
 
