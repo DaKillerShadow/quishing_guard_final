@@ -453,7 +453,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         final_label = "warning"
 
     triggered_checks = [c for c in checks if c["triggered"] and c["score"] > 0]
-    top_threat       = max(triggered_checks, key=lambda c: c["score"])["label"] if triggered_checks else "None"
+    top_threat       = max(triggered_checks, key=lambda c: c["score"])["name"] if triggered_checks else "None"
 
     # FIX: Skip AI for allowlisted/blocklisted URLs — verdict is already final.
     # Calling Gemini for these wastes quota and adds 3–12 s of unnecessary latency.
