@@ -267,16 +267,39 @@ class ScannerController extends StateNotifier<ScannerState> {
   }
 
   Future<void> scanFromGallery() async {
-    if (kIsWeb) return;
-
     final image = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (image == null) return;
 
-    // Gallery scan is the one case where the camera IS intentionally stopped —
-    // MobileScannerController.analyzeImage() needs exclusive access.
     state = state.copyWith(
         state: ScanState.scanning, statusMsg: '🔍 Analysing image...');
 
+    if (kIsWeb) {
+      final bytes = await image.readAsBytes();
+      try {
+        final results = await _ref.read(apiServiceProvider).scanImage(
+          bytes,
+          image.name.isNotEmpty ? image.name : 'upload.png',
+        );
+        if (results.isEmpty) {
+          state = state.copyWith(
+            state:     ScanState.error,
+            errorMsg:  'No QR code found in the selected image.',
+            statusMsg: 'Point at a QR code',
+          );
+          return;
+        }
+        await _analyse(results.first.url);
+      } on ApiException catch (e) {
+        state = state.copyWith(
+          state:        ScanState.error,
+          apiException: e,
+          statusMsg:    'Image scan failed — tap to retry',
+        );
+      }
+      return;
+    }
+
+    // Native path unchanged below
     final controller = MobileScannerController();
     try {
       final capture = await controller.analyzeImage(image.path);
@@ -639,18 +662,16 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       // Action buttons
                       Row(
                         children: [
-                          if (!kIsWeb) ...[
-                            Expanded(
-                              child: _CtrlBtn(
-                                icon:  '🖼',
-                                label: 'Gallery',
-                                onTap: ref
-                                    .read(scannerStateProvider.notifier)
-                                    .scanFromGallery,
-                              ),
+                          Expanded(
+                            child: _CtrlBtn(
+                              icon:  '🖼',
+                              label: 'Gallery',
+                              onTap: ref
+                                  .read(scannerStateProvider.notifier)
+                                  .scanFromGallery,
                             ),
-                            const SizedBox(width: 10),
-                          ],
+                          ),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: _CtrlBtn(
                               icon:  '📋',
@@ -1037,4 +1058,3 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
-
