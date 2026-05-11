@@ -39,6 +39,19 @@ services:
         value: "https://mohamed-abdelfattah-h.github.io" # Updated to your likely GH handle
       - key: LOG_LEVEL
         value: INFO
+      # AUDIT FIX [C-1]: GEMINI_API_KEY was entirely absent from render.yaml.
+      # Every production scan returned "AI analysis disabled." silently because
+      # scorer.py line 90 guards on os.environ.get("GEMINI_API_KEY").
+      # Set the actual key value in the Render dashboard — never commit it.
+      - key: GEMINI_API_KEY
+        sync: false
+      # TRUSTED_PROXY_COUNT: tells get_real_client_ip() how many upstream
+      # proxies to trust when reading X-Forwarded-For (limiter.py).
+      # Render places exactly one load balancer in front of the web service,
+      # so this value is correct for the documented deployment target.
+      # Override to 0 in local dev (no proxy in front of gunicorn).
+      - key: TRUSTED_PROXY_COUNT
+        value: "1"
 
 # Persistent PostgreSQL
 databases:
