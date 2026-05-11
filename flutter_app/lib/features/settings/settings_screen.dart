@@ -290,7 +290,7 @@ class _State extends ConsumerState<SettingsScreen> {
           ...{
             'App': AppConstants.appName,
             'Version': AppConstants.appVersion,
-            'Engine': '8-check heuristic + Shannon Entropy',
+            'Engine': '12-pillar heuristic + Gemini 1.5 Flash',
             'Database': 'SQLAlchemy (SQLite / PostgreSQL)',
             'Auth': 'JWT HS256 admin tokens',
             'Rate Limit': 'Flask-Limiter (30 req/min)',
