@@ -191,7 +191,6 @@ class ScannerController extends StateNotifier<ScannerState> {
       // No network — navigate immediately with the offline-only result.
       // SafePreviewScreen will show the ⚡ PARTIAL SCORE banner.
       final result = ScanResult.fromOffline(offlineResult);
-      result.isOffline = true;
       await _ref.read(historyProvider.notifier).add(result);
 
       state = state.copyWith(
@@ -216,11 +215,9 @@ class ScannerController extends StateNotifier<ScannerState> {
     );
 
     try {
-      // Attempt the primary backend scan (Render)
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
       await _ref.read(historyProvider.notifier).add(result);
 
-      // Handle successful backend result
       state = state.copyWith(
         state:     ScanState.done,
         statusMsg: '✓ Analysis complete — opening results…',
@@ -234,40 +231,38 @@ class ScannerController extends StateNotifier<ScannerState> {
       } else {
         _ref.read(_navigateProvider)?.call('/preview', extra: result);
       }
-    } catch (e) {
-      // Backend failed (Render down, timeout, or no internet)
-      debugPrint('Backend unreachable, falling back to Offline Analyzer: $e');
-
-      try {
-        // Trigger the 14-pillar offline engine fallback
+    } on ApiException catch (e) {
+      // If this is a network-level failure (no route to host, timeout, etc.)
+      // and we have an offline result, fall back to it instead of hard-failing.
+      // For server-side errors (4xx/5xx) where the backend responded, surface
+      // the ApiException as before so SecurityErrorWidget can show the detail.
+      if (e.isOffline) {
         final result = ScanResult.fromOffline(offlineResult);
-        
-        // Tag the result so the UI knows it was generated offline
-        result.isOffline = true;
-        
         await _ref.read(historyProvider.notifier).add(result);
-        
         state = state.copyWith(
           state:     ScanState.done,
           statusMsg: '⚡ Backend unreachable — showing offline score…',
         );
-        
         final prefs      = await SharedPreferences.getInstance();
         final autoLesson = prefs.getBool('autoLesson') ?? false;
-        
         if (autoLesson && result.riskScore >= 60) {
           _ref.read(_navigateProvider)?.call('/lesson', extra: result);
         } else {
           _ref.read(_navigateProvider)?.call('/preview', extra: result);
         }
-      } catch (offlineError) {
-        // Extreme edge case: Offline engine crashed
+      } else {
         state = state.copyWith(
-          state:     ScanState.error,
-          errorMsg:  'Analysis failed entirely. Please try again.',
-          statusMsg: 'Analysis failed — tap to retry',
+          state:        ScanState.error,
+          apiException: e,
+          statusMsg:    'Analysis failed — tap to retry',
         );
       }
+    } catch (e) {
+      state = state.copyWith(
+        state:     ScanState.error,
+        errorMsg:  e.toString(),
+        statusMsg: 'Analysis failed — tap to retry',
+      );
     }
   }
 
@@ -1063,4 +1058,3 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
-
