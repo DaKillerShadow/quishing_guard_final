@@ -9,8 +9,28 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.flash" android:required="false"/>
     
-    <application android:label="Quishing Guard" android:name="${applicationName}" android:icon="@mipmap/launcher_icon" android:networkSecurityConfig="@xml/network_security_config" android:requestLegacyExternalStorage="true">
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true" android:windowSoftInputMode="adjustResize">
+    <!--
+      AUDIT FIX [S-2]: Removed android:requestLegacyExternalStorage="true".
+      That attribute opts the app out of Android 10+ (API 29+) scoped storage,
+      granting unrestricted access to the shared external storage partition.
+      This app never writes to external storage, so the opt-out was unnecessary
+      and widened the storage attack surface. Scoped storage is now enforced
+      by the OS as intended for all API 29+ devices.
+    -->
+    <application
+        android:label="Quishing Guard"
+        android:name="${applicationName}"
+        android:icon="@mipmap/launcher_icon"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
             
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.MAIN"/>
