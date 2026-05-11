@@ -157,7 +157,7 @@ def analyse():
         "resolved_url":       resolved_url,
         "risk_score":         result_data["risk_score"],
         "risk_label":         result_data["risk_label"],
-        "top_threat":         threat_text,
+        "top_threat": result_data.get("top_threat", threat_text),
         "redirect_chain":     redirect_chain,
         "hop_count":          hop_count,
         "is_allowlisted":     allowlisted,
