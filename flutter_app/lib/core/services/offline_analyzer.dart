@@ -639,7 +639,7 @@ OfflineAnalysisResult analyseOffline(String rawUrl) {
     message:   isBrandSpoof
         ? 'Suspicious use of a trusted brand name in an unverified domain.'
         : 'No deceptive brand keywords found in domain. ✓',
-    metric:    isBrandSpoof ? 'Domain: $etld1' : '',
+    metric: isBrandSpoof ? 'Domain: $domain' : '',
     score:     isBrandSpoof ? 25 : 0,
     triggered: isBrandSpoof,
   ));
@@ -814,10 +814,10 @@ OfflineAnalysisResult analyseOffline(String rawUrl) {
   }
 
   // scorer.py lines 443–446: hard list overrides
-  if (isBlocklisted) {
-    riskScore = 100;
-  } else if (isAllowlisted) {
+  if (isAllowlisted) {
     riskScore = 0;
+} else if (isBlocklisted) {
+    riskScore = 100;
   }
 
   // scorer.py line 448
