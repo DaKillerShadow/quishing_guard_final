@@ -135,7 +135,7 @@ class ScannerController extends StateNotifier<ScannerState> {
   Future<void> analyzeDemo(String url) async => _analyse(url);
 
   // Helper method to execute offline fallback
-  void _runOfflineFallback(String url) async {
+  Future<void> _runOfflineFallback(String url) async {
     debugPrint('Initiating offline fallback for: $url');
     try {
       // FIX 1 & 2: Use your existing analyseOffline function and fromOffline constructor
@@ -213,7 +213,7 @@ class ScannerController extends StateNotifier<ScannerState> {
     final isOffline    = connectivity.every((r) => r == ConnectivityResult.none);
 
     if (isOffline) {
-      _runOfflineFallback(url);
+      unawaited(_runOfflineFallback(url));
       return;
     }
 
@@ -242,13 +242,13 @@ class ScannerController extends StateNotifier<ScannerState> {
 
     } on DioException catch (e) {
       debugPrint('Backend unreachable (Dio): $e');
-      _runOfflineFallback(url);
+      unawaited(_runOfflineFallback(url));
     } on ApiException catch (e) {
       debugPrint('Backend unreachable (Api): $e');
-      _runOfflineFallback(url);
+      _unawaited(_runOfflineFallback(url));
     } catch (e) {
       debugPrint('Backend unreachable (General): $e');
-      _runOfflineFallback(url);
+      unawaited(_runOfflineFallback(url));
     }
   }
 
