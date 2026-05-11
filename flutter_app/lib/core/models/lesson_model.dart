@@ -227,6 +227,24 @@ class LessonModel {
           ],
           correctOptionIndex: 1,
         );
+      case 'brand_spoof':
+        return const LessonModel(
+          type: 'brand_spoof',
+          emoji: '🎯',
+          title: 'Brand Impersonation',
+          summary: 'The link is trying to impersonate a well-known company or service.',
+          body: 'Attackers craft URLs that look incredibly similar to legitimate brands by using slight misspellings, adding extra words, or using different domain extensions to trick you into entering your credentials.',
+          example: 'https://login-microsoft.com',
+          realCounterpart: 'https://login.microsoftonline.com',
+          tip: 'Always verify the exact spelling of the domain. If in doubt, manually type the company\'s address into your browser instead of clicking the link.',
+          quizQuestion: 'Which of these is a common brand spoofing technique?',
+          quizOptions: [
+            'Using a completely random string of letters',
+            'Using a lookalike domain with a slight typo (e.g., faceb00k.com)',
+            'Hosting the site on a high-reputation server'
+          ],
+          correctOptionIndex: 1,
+        );
       default:
         return const LessonModel(
           type: 'generic',
@@ -248,3 +266,4 @@ class LessonModel {
     }
   }
 }
+
