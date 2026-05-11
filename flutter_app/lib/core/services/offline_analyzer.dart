@@ -234,7 +234,7 @@ class OfflineAnalysisResult {
   /// True if matched the built-in allowlist (offline substitute for Tranco).
   final bool isTrustedOffline;
 
-  /// All 8 offline pillar results.
+  /// All 37 offline pillar results.
   final List<PillarResult> checks;
 
   final String overallAssessment;
