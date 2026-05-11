@@ -1,4 +1,5 @@
 // lib/features/scanner/scanner_screen.dart
+import 'dart:async' show unawaited; // B-1: required for unawaited() at call sites 216,245,248,251
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -151,7 +152,7 @@ class ScannerController extends StateNotifier<ScannerState> {
 
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
-      if (autoLesson && result.riskScore >= 60) {
+      if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
         _ref.read(_navigateProvider)?.call('/lesson', extra: result);
       } else {
         _ref.read(_navigateProvider)?.call('/preview', extra: result);
@@ -234,7 +235,7 @@ class ScannerController extends StateNotifier<ScannerState> {
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
 
-      if (autoLesson && result.riskScore >= 60) {
+      if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
         _ref.read(_navigateProvider)?.call('/lesson', extra: result);
       } else {
         _ref.read(_navigateProvider)?.call('/preview', extra: result);
@@ -288,7 +289,7 @@ class ScannerController extends StateNotifier<ScannerState> {
         final prefs      = await SharedPreferences.getInstance();
         final autoLesson = prefs.getBool('autoLesson') ?? false;
 
-        if (autoLesson && result.riskScore >= 60) {
+        if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
           _ref.read(_navigateProvider)?.call('/lesson', extra: result);
         } else {
           _ref.read(_navigateProvider)?.call('/preview', extra: result);
@@ -300,11 +301,23 @@ class ScannerController extends StateNotifier<ScannerState> {
           apiException: e,
           statusMsg:    'Image scan failed — tap to retry',
         );
+      } catch (e) {
+        // L-2: image.readAsBytes(), historyProvider.add(), or navigation
+        // can throw non-ApiException errors. Without this block the state
+        // stays at ScanState.scanning (spinner forever — unrecoverable).
+        debugPrint('Gallery web scan unexpected error: $e');
+        state = state.copyWith(
+          state:     ScanState.error,
+          errorMsg:  'Image scan failed. Please try again.',
+          statusMsg: 'Point at a QR code',
+        );
       }
       return;
     }
 
-    final controller = MobileScannerController();
+    final controller = MobileScannerController(
+      formats: [BarcodeFormat.qrCode], // B-3: restrict to QR only — matches main camera config
+    );
     try {
       final capture = await controller.analyzeImage(image.path);
       if (capture != null && capture.barcodes.isNotEmpty) {
@@ -711,13 +724,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         backgroundColor: AppColors.panel,
         title: const Text('🛡 System Architect',
             style: TextStyle(color: AppColors.arc)),
-        content: const Text(
-          'Quishing Guard v1.0\n\n'
+        content: Text( // B-2: removed const — uses live AppConstants.appVersion
+          'Quishing Guard v\${AppConstants.appVersion}\n\n'
           'Designed, developed, and engineered entirely by Mohamed Abdelfattah '
           'for the 2026 Graduation Project.\n\n'
           'Core Tech: Flutter, Python, Shannon Entropy Heuristics, '
           'Punycode & Homograph Detection.',
-          style: TextStyle(color: Colors.white, height: 1.5),
+          style: const TextStyle(color: Colors.white, height: 1.5),
         ),
         actions: [
           TextButton(
@@ -1008,4 +1021,3 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
-
