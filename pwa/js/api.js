@@ -17,7 +17,7 @@ import { queueReport, getQueuedReports, clearQueuedReport } from './db.js';
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 // ── Config ────────────────────────────────────────────────────────────────────
-let _apiBase = window.QG_CONFIG?.apiBase || 'http://localhost:5000';
+let _apiBase = window.QG_CONFIG?.apiBase || 'https://quishing-guard-backend.onrender.com';
 
 export function setApiBase(base) {
   _apiBase = base.replace(/\/$/, '');
