@@ -101,7 +101,8 @@ class ApiService {
       });
       return ScanResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw _map(e);
+      // DO NOT return a dummy ScanResult here. Throw it upward.
+      throw ApiException(e.message ?? 'Network Error');
     }
   }
 
@@ -309,4 +310,3 @@ class ApiService {
     };
   }
 }
-
