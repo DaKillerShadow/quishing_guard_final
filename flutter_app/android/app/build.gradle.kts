@@ -26,9 +26,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("your-release.keystore")
+            storePassword = System.getenv("KEYSTORE_PASS")
+            keyAlias = "quishing_guard"
+            keyPassword = System.getenv("KEY_PASS")
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
