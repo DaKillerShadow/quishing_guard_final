@@ -177,6 +177,11 @@ class ScannerController extends StateNotifier<ScannerState> {
     // This fires before any connectivity check so the app always has a
     // preliminary score to show, regardless of network state.
     final offlineResult = analyseOffline(url);
+    
+    state = state.copyWith(
+      state:     ScanState.analysing,
+      statusMsg: '⚡ Running offline analysis…',
+    );
 
     // ── 5. Connectivity check ────────────────────────────────────────────────
     final connectivity = await Connectivity().checkConnectivity();
@@ -231,7 +236,7 @@ class ScannerController extends StateNotifier<ScannerState> {
       // and we have an offline result, fall back to it instead of hard-failing.
       // For server-side errors (4xx/5xx) where the backend responded, surface
       // the ApiException as before so SecurityErrorWidget can show the detail.
-      if (e.isOffline && offlineResult.riskScore > 0) {
+      if (e.isOffline) {
         final result = ScanResult.fromOffline(offlineResult);
         await _ref.read(historyProvider.notifier).add(result);
         state = state.copyWith(
