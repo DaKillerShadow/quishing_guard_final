@@ -245,7 +245,7 @@ class ScannerController extends StateNotifier<ScannerState> {
       unawaited(_runOfflineFallback(url));
     } on ApiException catch (e) {
       debugPrint('Backend unreachable (Api): $e');
-      _unawaited(_runOfflineFallback(url));
+      unawaited(_runOfflineFallback(url));
     } catch (e) {
       debugPrint('Backend unreachable (General): $e');
       unawaited(_runOfflineFallback(url));
@@ -274,7 +274,26 @@ class ScannerController extends StateNotifier<ScannerState> {
           );
           return;
         }
-        await _analyse(results.first.url);
+        
+        // FIX: Directly use the fully processed result from the backend 
+        // to avoid a redundant API call and duplicate AI quota usage.
+        final result = results.first;
+        await _ref.read(historyProvider.notifier).add(result);
+        
+        state = state.copyWith(
+          state:     ScanState.done,
+          statusMsg: '✓ Analysis complete — opening results…',
+        );
+
+        final prefs      = await SharedPreferences.getInstance();
+        final autoLesson = prefs.getBool('autoLesson') ?? false;
+
+        if (autoLesson && result.riskScore >= 60) {
+          _ref.read(_navigateProvider)?.call('/lesson', extra: result);
+        } else {
+          _ref.read(_navigateProvider)?.call('/preview', extra: result);
+        }
+
       } on ApiException catch (e) {
         state = state.copyWith(
           state:        ScanState.error,
