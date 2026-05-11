@@ -138,10 +138,11 @@ class ScannerController extends StateNotifier<ScannerState> {
   void _runOfflineFallback(String url) async {
     debugPrint('Initiating offline fallback for: $url');
     try {
-      final ScanResult offlineResult = OfflineAnalyzer().analyze(url);
-      offlineResult.isOffline = true; // Flag for the UI
+      // FIX 1 & 2: Use your existing analyseOffline function and fromOffline constructor
+      final offlineResult = analyseOffline(url);
+      final result = ScanResult.fromOffline(offlineResult);
       
-      await _ref.read(historyProvider.notifier).add(offlineResult);
+      await _ref.read(historyProvider.notifier).add(result);
 
       state = state.copyWith(
         state:     ScanState.done,
@@ -150,10 +151,10 @@ class ScannerController extends StateNotifier<ScannerState> {
 
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
-      if (autoLesson && offlineResult.riskScore >= 60) {
-        _ref.read(_navigateProvider)?.call('/lesson', extra: offlineResult);
+      if (autoLesson && result.riskScore >= 60) {
+        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
       } else {
-        _ref.read(_navigateProvider)?.call('/preview', extra: offlineResult);
+        _ref.read(_navigateProvider)?.call('/preview', extra: result);
       }
     } catch (offlineError) {
       debugPrint('Offline engine failure: $offlineError');
@@ -220,11 +221,8 @@ class ScannerController extends StateNotifier<ScannerState> {
     try {
       final result = await _ref.read(apiServiceProvider).analyseUrl(url);
       
-      // Failsafe: If service returns an error string instead of throwing
-      if (result.error != null && result.error!.toLowerCase().contains('network')) {
-         _runOfflineFallback(url);
-         return;
-      }
+      // FIX 3: Removed invalid `result.error` check here. 
+      // Network failures are handled by the catch blocks below.
       
       await _ref.read(historyProvider.notifier).add(result);
 
@@ -991,3 +989,4 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
+
