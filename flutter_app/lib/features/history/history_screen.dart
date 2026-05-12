@@ -1,5 +1,8 @@
 // lib/features/history/history_screen.dart
+import 'dart:convert' show utf8;
 import 'dart:io';
+import 'dart:typed_data' show Uint8List;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -120,23 +123,41 @@ class HistoryScreen extends ConsumerWidget {
     }
 
     final buffer = StringBuffer();
-    // CSV Headers
     buffer.writeln('Date,URL,Risk Score,Risk Label,Top Threat');
-    
     for (final item in history) {
-      // Escape URLs in case they contain commas
       final escapedUrl = item.url.replaceAll('"', '""');
-      buffer.writeln('${item.scannedAt.toIso8601String()},"$escapedUrl",${item.riskScore},${item.riskLabel},"${item.topThreat}"');
+      // FIX: topThreat is String? — was printing literal 'null' in CSV.
+      buffer.writeln(
+        '${item.scannedAt.toIso8601String()},"$escapedUrl"'
+        ',${item.riskScore},${item.riskLabel}'
+        ',"${item.topThreat ?? 'None'}"',
+      );
     }
+    final csvString = buffer.toString();
 
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/quishing_guard_history.csv');
-    await file.writeAsString(buffer.toString());
-
-    await Share.shareXFiles(
-      [XFile(file.path)], 
-      text: 'My Quishing Guard Scan History',
-    );
+    if (kIsWeb) {
+      // Web: path_provider and dart:io File are unavailable on web.
+      // XFile.fromData() builds an in-memory file from raw bytes.
+      // share_plus 9.x passes it to navigator.share() (Web Share API)
+      // which triggers a native download dialog on Chrome/Safari and
+      // falls back gracefully on unsupported browsers.
+      final bytes = Uint8List.fromList(utf8.encode(csvString));
+      await Share.shareXFiles(
+        [XFile.fromData(bytes,
+            mimeType: 'text/csv',
+            name:     'quishing_guard_history.csv')],
+        text: 'Quishing Guard Scan History',
+      );
+    } else {
+      // Native: write to the app documents directory and share the path.
+      final dir  = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/quishing_guard_history.csv');
+      await file.writeAsString(csvString);
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Quishing Guard Scan History',
+      );
+    }
   }
 
   static void _confirmClear(BuildContext context, HistoryNotifier notif) {
@@ -274,3 +295,4 @@ class _Empty extends StatelessWidget {
     ]),
   );
 }
+
