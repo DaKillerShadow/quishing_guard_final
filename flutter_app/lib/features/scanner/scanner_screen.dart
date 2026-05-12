@@ -17,6 +17,7 @@ import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
 import '../../core/services/offline_analyzer.dart';
 import '../../core/utils/api_exception.dart';
+import '../../core/services/threat_intel_service.dart';
 import '../../core/utils/app_constants.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/scan_overlay.dart';
@@ -209,6 +210,10 @@ class ScannerController extends StateNotifier<ScannerState> {
       statusMsg: '⚡ Running analysis…',
     );
 
+    // Reset VT providers so the preview screen never shows a stale result.
+    _ref.read(vtResultProvider.notifier).state  = null;
+    _ref.read(vtLoadingProvider.notifier).state = false;
+
     // ── 5. Connectivity check ────────────────────────────────────────────────
     final connectivity = await Connectivity().checkConnectivity();
     final isOffline    = connectivity.every((r) => r == ConnectivityResult.none);
@@ -226,6 +231,10 @@ class ScannerController extends StateNotifier<ScannerState> {
       // Network failures are handled by the catch blocks below.
       
       await _ref.read(historyProvider.notifier).add(result);
+
+      // Fire VT check in the background — never blocks navigation.
+      // The result lands in vtResultProvider which safe_preview_screen reads.
+      unawaited(runVtCheck(url, _ref));
 
       state = state.copyWith(
         state:     ScanState.done,
@@ -376,8 +385,16 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(_navigateProvider.notifier).state = (path, {extra}) async {
         if (!mounted) return;
-        await context.push(path, extra: extra);
-        if (mounted) ref.read(scannerStateProvider.notifier).reset();
+        try {
+          await context.push(path, extra: extra);
+        } catch (e) {
+          // FIX: GoRouter can throw if called mid-animation (e.g. while a
+          // bottom sheet dismiss is in flight). Without this catch, reset()
+          // is never called and the spinner stays forever.
+          debugPrint('[Nav] context.push failed: $e');
+        } finally {
+          if (mounted) ref.read(scannerStateProvider.notifier).reset();
+        }
       };
       _startCamera();
     });
@@ -441,7 +458,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       },
     ];
 
-    showModalBottomSheet<void>(
+    // FIX: changed sheet type from void to String? so each ListTile
+    // returns the selected URL via Navigator.pop(ctx, url). The analysis
+    // starts in the .then() callback, which fires AFTER the sheet's dismiss
+    // animation Future resolves — not while the Navigator is mid-animation
+    // on the pop. That timing conflict caused GoRouter to silently drop the
+    // context.push('/preview') call, leaving the spinner stuck permanently.
+    showModalBottomSheet<String>(
       context: context,
       backgroundColor: const Color(0xFF1A1B26),
       shape: const RoundedRectangleBorder(
@@ -468,17 +491,18 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       style: const TextStyle(color: Colors.grey)),
                   trailing: const Icon(Icons.arrow_forward_ios,
                       color: Colors.cyan, size: 16),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    ref
-                        .read(scannerStateProvider.notifier)
-                        .analyzeDemo(demo['url']!);
-                  },
+                  onTap: () => Navigator.pop(ctx, demo['url']),
                 )),
           ],
         ),
       ),
-    );
+    ).then((url) {
+      // Sheet's dismiss animation is fully complete by the time .then()
+      // fires — safe to push a new route now.
+      if (url != null && url.isNotEmpty) {
+        ref.read(scannerStateProvider.notifier).analyzeDemo(url);
+      }
+    });
   }
 
   @override
