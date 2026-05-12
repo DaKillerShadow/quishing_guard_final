@@ -125,11 +125,15 @@ def scan_image():
                 # AUDIT FIX [RTE-03]: Perform reputation check per payload.
                 # Without this, blocklisted domains scanned via image bypassed
                 # the mandatory risk_score=100 override entirely.
-                allowlisted = is_allowlisted(payload)
-                blocklisted = is_blocklisted(payload)
 
                 # F-02: Resolve once, pass trace_data into analyse_url.
                 trace           = trace_redirects(payload)
+                
+                # H-2 FIX (image path): Re-evaluate against final destination, not raw QR payload.
+                final_url   = trace.get("final_url") or payload
+                allowlisted = is_allowlisted(final_url)
+                blocklisted = is_blocklisted(final_url)
+
                 analysis_result = analyse_url(
                     payload,
                     blocklisted=blocklisted,   # RTE-03
