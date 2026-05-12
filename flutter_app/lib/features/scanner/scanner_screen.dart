@@ -154,9 +154,9 @@ class ScannerController extends StateNotifier<ScannerState> {
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
       if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) {
-        unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
+        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
       } else {
-        unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
+        _ref.read(_navigateProvider)?.call('/preview', extra: result);
       }
     } catch (offlineError) {
       debugPrint('Offline engine failure: $offlineError');
@@ -241,9 +241,9 @@ class ScannerController extends StateNotifier<ScannerState> {
       unawaited(runVtCheck(url, _ref));
 
       if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) {
-        unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
+        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
       } else {
-        unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
+        _ref.read(_navigateProvider)?.call('/preview', extra: result);
       }
 
     } on DioException catch (e) {
@@ -301,9 +301,9 @@ class ScannerController extends StateNotifier<ScannerState> {
         ));
 
         if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) {
-          unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
+          _ref.read(_navigateProvider)?.call('/lesson', extra: result);
         } else {
-          unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
+          _ref.read(_navigateProvider)?.call('/preview', extra: result);
         }
 
       } on ApiException catch (e) {
@@ -1052,3 +1052,4 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
+
