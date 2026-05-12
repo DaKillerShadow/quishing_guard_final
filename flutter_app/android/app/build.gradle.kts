@@ -27,11 +27,17 @@ android {
     }
 
     signingConfigs {
+        val keystoreProperties = java.util.Properties()
+        val keystorePropertiesFile = rootProject.projectDir.resolve("key.properties")
+        if (keystorePropertiesFile.exists()) {
+            keystoreProperties.load(keystorePropertiesFile.inputStream())
+        }
+
         create("release") {
-            storeFile = file("your-release.keystore")
-            storePassword = System.getenv("KEYSTORE_PASS")
-            keyAlias = "quishing_guard"
-            keyPassword = System.getenv("KEY_PASS")
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
+            storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
+            storePassword = keystoreProperties.getProperty("storePassword")
         }
     }
 
