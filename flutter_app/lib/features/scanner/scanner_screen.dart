@@ -1,5 +1,5 @@
 // lib/features/scanner/scanner_screen.dart
-import 'dart:async' show unawaited; // B-1: required for unawaited() at call sites 216,245,248,251
+import 'dart:async' show unawaited;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -153,7 +153,7 @@ class ScannerController extends StateNotifier<ScannerState> {
 
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
-      if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
+      if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) {
         unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
       } else {
         unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
@@ -210,10 +210,6 @@ class ScannerController extends StateNotifier<ScannerState> {
       statusMsg: '⚡ Running analysis…',
     );
 
-    // Reset VT providers so the preview screen never shows a stale result.
-    _ref.read(vtResultProvider.notifier).state  = null;
-    _ref.read(vtLoadingProvider.notifier).state = false;
-
     // ── 5. Connectivity check ────────────────────────────────────────────────
     final connectivity = await Connectivity().checkConnectivity();
     final isOffline    = connectivity.every((r) => r == ConnectivityResult.none);
@@ -232,10 +228,6 @@ class ScannerController extends StateNotifier<ScannerState> {
       
       await _ref.read(historyProvider.notifier).add(result);
 
-      // Fire VT check in the background — never blocks navigation.
-      // The result lands in vtResultProvider which safe_preview_screen reads.
-      unawaited(runVtCheck(url, _ref));
-
       state = state.copyWith(
         state:     ScanState.done,
         statusMsg: '✓ Analysis complete — opening results…',
@@ -244,7 +236,11 @@ class ScannerController extends StateNotifier<ScannerState> {
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
 
-      if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
+      // CB-4 + LG-2: fire VT check in background after successful scan.
+      // runVtCheck() resets vtResultProvider/vtLoadingProvider internally.
+      unawaited(runVtCheck(url, _ref));
+
+      if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) {
         unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
       } else {
         unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
@@ -298,13 +294,13 @@ class ScannerController extends StateNotifier<ScannerState> {
         final prefs      = await SharedPreferences.getInstance();
         final autoLesson = prefs.getBool('autoLesson') ?? false;
 
-        // FIX: VT check for gallery uploads (was missing).
+        // CB-4 + LG-2: VT check for gallery uploads.
         unawaited(runVtCheck(
           result.resolvedUrl.isNotEmpty ? result.resolvedUrl : result.url,
           _ref,
         ));
 
-        if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
+        if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) {
           unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
         } else {
           unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
@@ -317,13 +313,13 @@ class ScannerController extends StateNotifier<ScannerState> {
           statusMsg:    'Image scan failed — tap to retry',
         );
       } catch (e) {
-        // L-2: image.readAsBytes(), historyProvider.add(), or navigation
-        // can throw non-ApiException errors. Without this block the state
-        // stays at ScanState.scanning (spinner forever — unrecoverable).
+        // CB-6: image.readAsBytes(), historyProvider.add(), or navigation
+        // can throw non-ApiException errors — leaves state at scanning/done
+        // forever without this general catch.
         debugPrint('Gallery web scan unexpected error: $e');
         state = state.copyWith(
-          state:     ScanState.error,
-          errorMsg:  'Image scan failed. Please try again.',
+          state:    ScanState.error,
+          errorMsg: 'Image scan failed. Please try again.',
           statusMsg: 'Point at a QR code',
         );
       }
@@ -331,7 +327,7 @@ class ScannerController extends StateNotifier<ScannerState> {
     }
 
     final controller = MobileScannerController(
-      formats: [BarcodeFormat.qrCode], // B-3: restrict to QR only — matches main camera config
+      formats: [BarcodeFormat.qrCode], // CB-7: main camera uses QR-only; gallery must match
     );
     try {
       final capture = await controller.analyzeImage(image.path);
@@ -394,9 +390,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         try {
           await context.push(path, extra: extra);
         } catch (e) {
-          // FIX: GoRouter can throw if called mid-animation (e.g. while a
-          // bottom sheet dismiss is in flight). Without this catch, reset()
-          // is never called and the spinner stays forever.
+          // CB-3: GoRouter can throw mid-animation (e.g. demo sheet dismiss
+          // race). Without this catch, reset() is never called and the
+          // QGLoader spinner shows permanently with no recovery path.
           debugPrint('[Nav] context.push failed: $e');
         } finally {
           if (mounted) ref.read(scannerStateProvider.notifier).reset();
@@ -464,12 +460,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       },
     ];
 
-    // FIX: changed sheet type from void to String? so each ListTile
-    // returns the selected URL via Navigator.pop(ctx, url). The analysis
-    // starts in the .then() callback, which fires AFTER the sheet's dismiss
-    // animation Future resolves — not while the Navigator is mid-animation
-    // on the pop. That timing conflict caused GoRouter to silently drop the
-    // context.push('/preview') call, leaving the spinner stuck permanently.
+    // CB-2: Changed sheet type from void to String so the selected URL is
+    // returned via Navigator.pop(ctx, url). analyzeDemo() is called in
+    // .then() which fires only AFTER the sheet's dismiss animation Future
+    // resolves — guaranteeing the Navigator is idle before context.push.
+    // The previous pattern (pop + analyzeDemo synchronously) caused GoRouter
+    // to drop context.push('/preview') when called mid-animation on fast
+    // backends, leaving the spinner permanently stuck.
     showModalBottomSheet<String>(
       context: context,
       backgroundColor: const Color(0xFF1A1B26),
@@ -504,7 +501,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       ),
     ).then((url) {
       // Sheet's dismiss animation is fully complete by the time .then()
-      // fires — safe to push a new route now.
+      // fires — safe to push a new route without a Navigator conflict.
       if (url != null && url.isNotEmpty) {
         ref.read(scannerStateProvider.notifier).analyzeDemo(url);
       }
@@ -514,8 +511,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerStateProvider);
-    // FIX: ScanState.scanning added — gallery upload (5-15s on web)
-    // showed no spinner; camera was stopped but QGLoader never appeared.
+    // CB-5: ScanState.scanning added — gallery upload (5-15s on web)
+    // set this state but showed no spinner (camera stopped, screen frozen).
     final isLoading = scanState.state == ScanState.analysing ||
                       scanState.state == ScanState.scanning  ||
                       scanState.state == ScanState.done;
@@ -757,7 +754,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         backgroundColor: AppColors.panel,
         title: const Text('🛡 System Architect',
             style: TextStyle(color: AppColors.arc)),
-        content: Text( // B-2: removed const — uses live AppConstants.appVersion
+        content: Text(
+          // LG-4: removed const — string now references AppConstants.appVersion
           'Quishing Guard v\${AppConstants.appVersion}\n\n'
           'Designed, developed, and engineered entirely by Mohamed Abdelfattah '
           'for the 2026 Graduation Project.\n\n'
@@ -1054,4 +1052,3 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
-
