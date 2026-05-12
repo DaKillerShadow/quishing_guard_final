@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/api_service.dart';
+import '../../core/services/threat_intel_service.dart';
 import '../../core/services/history_service.dart';
 import '../../core/utils/app_constants.dart';
 import '../../shared/theme/app_theme.dart';
@@ -26,6 +27,8 @@ class _State extends ConsumerState<SettingsScreen> {
   late final TextEditingController _apiCtrl;
   late final TextEditingController _userCtrl;
   late final TextEditingController _passCtrl;
+  late final TextEditingController _vtKeyCtrl;
+  bool _vtKeySet = false;
 
   bool _autoLesson = true;
   bool _notifications = true;
@@ -38,7 +41,8 @@ class _State extends ConsumerState<SettingsScreen> {
     super.initState();
     _apiCtrl = TextEditingController(text: AppConstants.defaultApiBaseUrl);
     _userCtrl = TextEditingController(text: 'admin');
-    _passCtrl = TextEditingController();
+    _passCtrl  = TextEditingController();
+    _vtKeyCtrl = TextEditingController();
     _load();
   }
 
@@ -47,6 +51,7 @@ class _State extends ConsumerState<SettingsScreen> {
     _apiCtrl.dispose();
     _userCtrl.dispose();
     _passCtrl.dispose();
+    _vtKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -66,6 +71,8 @@ class _State extends ConsumerState<SettingsScreen> {
     final token = await _secureStorage.read(key: 'admin_token');
     if (mounted) setState(() => _isAdmin = token != null && token.isNotEmpty);
     await ref.read(apiServiceProvider).loadSavedToken();
+    final vtKey = await ThreatIntelService.getApiKey();
+    if (mounted) setState(() => _vtKeySet = vtKey != null && vtKey.isNotEmpty);
   }
 
   Future<void> _save(String key, dynamic value) async {
@@ -276,6 +283,73 @@ class _State extends ConsumerState<SettingsScreen> {
             ),
           ),
         ]),
+        _Group(label: 'External Threat Intelligence', children: [
+          _Row(
+            icon: '🔍',
+            title: 'VirusTotal API Key',
+            subtitle: _vtKeySet
+                ? 'Key stored — VT check runs after every scan'
+                : 'Optional — free key at virustotal.com (500 scans/day)',
+            trailing: const SizedBox.shrink(),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            child: Column(children: [
+              TextField(
+                controller: _vtKeyCtrl,
+                obscureText: true,
+                style: const TextStyle(
+                    fontFamily: 'monospace', fontSize: 12,
+                    color: AppColors.textColor),
+                decoration: InputDecoration(
+                  hintText: _vtKeySet ? '••••••••••••••••' : 'Paste API key here',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12)),
+                    onPressed: () async {
+                      final key = _vtKeyCtrl.text.trim();
+                      if (key.isEmpty) return;
+                      await ThreatIntelService.saveApiKey(key);
+                      _vtKeyCtrl.clear();
+                      if (mounted) {
+                        setState(() => _vtKeySet = true);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('VirusTotal key saved ✓')));
+                      }
+                    },
+                    child: const Text('SAVE KEY'),
+                  ),
+                ),
+                if (_vtKeySet) ...[
+                  const SizedBox(width: 10),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.ember,
+                        side: const BorderSide(color: AppColors.ember),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 12, horizontal: 16)),
+                    onPressed: () async {
+                      await ThreatIntelService.clearApiKey();
+                      if (mounted) {
+                        setState(() => _vtKeySet = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('VirusTotal key removed')));
+                      }
+                    },
+                    child: const Text('REMOVE', style: TextStyle(fontSize: 11)),
+                  ),
+                ],
+              ]),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 4),
         _Group(label: 'About', children: [
           _Row(
             icon: 'ℹ️',
@@ -416,4 +490,3 @@ class _Row extends StatelessWidget {
         ]),
       );
 }
-
