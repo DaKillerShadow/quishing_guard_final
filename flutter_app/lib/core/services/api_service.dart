@@ -17,11 +17,6 @@
 //           standard receiveTimeout (15s) via AppConstants.
 //   FLT-13  client_scan_id removed from /analyse request body — the backend
 //           never read this field, making it dead payload on every scan.
-//
-// Fixes applied (Batch 4 — v23 audit):
-//   L-1     adminDelete() added — wires DELETE /api/v1/admin/blocklist/<id>.
-//           The backend route existed since Batch 2 (admin.py:145) but had
-//           no Flutter client. Admin panel could not remove entries.
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -266,10 +261,13 @@ class ApiService {
     }
   }
 
-  /// AUDIT FIX [L-1]: Hard-deletes a blocklist entry by its database ID.
+  /// Hard-deletes a blocklist entry by its database ID.
+  ///
   /// Calls DELETE /api/v1/admin/blocklist/<id> (admin.py:145).
-  /// The backend route existed since Batch 2 but had no Flutter client,
-  /// making it impossible to remove entries from the admin panel UI.
+  /// The [id] is sent as a URL path parameter, not in the request body,
+  /// matching the Flask route @bp.route('/blocklist/<int:entry_id>', methods=['DELETE']).
+  ///
+  /// Throws [ApiException] on any network or server error via [_map].
   Future<void> adminDelete(int id) async {
     try {
       await _dio.delete('/api/v1/admin/blocklist/$id');
