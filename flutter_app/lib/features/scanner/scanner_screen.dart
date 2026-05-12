@@ -154,9 +154,9 @@ class ScannerController extends StateNotifier<ScannerState> {
       final prefs      = await SharedPreferences.getInstance();
       final autoLesson = prefs.getBool('autoLesson') ?? false;
       if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
-        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
+        unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
       } else {
-        _ref.read(_navigateProvider)?.call('/preview', extra: result);
+        unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
       }
     } catch (offlineError) {
       debugPrint('Offline engine failure: $offlineError');
@@ -245,9 +245,9 @@ class ScannerController extends StateNotifier<ScannerState> {
       final autoLesson = prefs.getBool('autoLesson') ?? false;
 
       if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
-        _ref.read(_navigateProvider)?.call('/lesson', extra: result);
+        unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
       } else {
-        _ref.read(_navigateProvider)?.call('/preview', extra: result);
+        unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
       }
 
     } on DioException catch (e) {
@@ -298,10 +298,16 @@ class ScannerController extends StateNotifier<ScannerState> {
         final prefs      = await SharedPreferences.getInstance();
         final autoLesson = prefs.getBool('autoLesson') ?? false;
 
+        // FIX: VT check for gallery uploads (was missing).
+        unawaited(runVtCheck(
+          result.resolvedUrl.isNotEmpty ? result.resolvedUrl : result.url,
+          _ref,
+        ));
+
         if (autoLesson && result.riskScore >= AppConstants.dangerThreshold) { // L-1: use constant
-          _ref.read(_navigateProvider)?.call('/lesson', extra: result);
+          unawaited(_ref.read(_navigateProvider)?.call('/lesson', extra: result));
         } else {
-          _ref.read(_navigateProvider)?.call('/preview', extra: result);
+          unawaited(_ref.read(_navigateProvider)?.call('/preview', extra: result));
         }
 
       } on ApiException catch (e) {
@@ -508,7 +514,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerStateProvider);
+    // FIX: ScanState.scanning added — gallery upload (5-15s on web)
+    // showed no spinner; camera was stopped but QGLoader never appeared.
     final isLoading = scanState.state == ScanState.analysing ||
+                      scanState.state == ScanState.scanning  ||
                       scanState.state == ScanState.done;
     final hasError  = scanState.apiException != null || scanState.errorMsg != null;
 
@@ -1045,3 +1054,4 @@ class _WifiRow extends StatelessWidget {
     );
   }
 }
+
