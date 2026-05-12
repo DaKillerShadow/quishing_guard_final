@@ -22,7 +22,7 @@ services:
           name: quishing-guard-db
           property: connectionString
       - key: SECRET_KEY
-        generateValue: true
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.8 # Stick to a stable version for production
       - key: ADMIN_USERNAME
