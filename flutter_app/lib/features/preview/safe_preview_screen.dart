@@ -1,4 +1,3 @@
-
 // lib/features/preview/safe_preview_screen.dart
 //
 // Fixes applied (Batch 3) — only changed sections shown with AUDIT FIX markers.
@@ -25,6 +24,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/models/scan_result.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/history_service.dart';
+import '../../core/services/threat_intel_service.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/heuristic_card.dart';
 import '../../shared/widgets/risk_badge.dart';
@@ -57,6 +57,8 @@ class _State extends ConsumerState<SafePreviewScreen> {
     // NOTE: ScanResult.isTrusted must be added as a field parsed from
     // j['is_trusted'] in ScanResult.fromJson() — see scan_result.dart fix.
     final bool isTrusted = r.isTrusted; // FLT-09
+    final VtResult? vtResult  = ref.watch(vtResultProvider);
+    final bool      vtLoading = ref.watch(vtLoadingProvider);
     final int  riskScore = r.riskScore;
 
     final showTamperingWarning = !isTrusted || !r.isSafe;
@@ -365,6 +367,12 @@ class _State extends ConsumerState<SafePreviewScreen> {
                   ],
                 ),
               ),
+
+            // ── VirusTotal Threat Intelligence ─────────────────────────────
+            // Shown only when a VT API key is configured and a result or
+            // a loading state is available. Suppressed for offline scans.
+            if (!r.isPartialScore && (vtLoading || vtResult != null))
+              _VtCard(loading: vtLoading, result: vtResult),
 
             if (r.redirectChain.length > 1)
               _Card(
@@ -829,5 +837,233 @@ class _Card extends StatelessWidget {
           ),
           Padding(padding: const EdgeInsets.all(14), child: child),
         ]),
+      );
+}
+
+// ── VirusTotal Card ────────────────────────────────────────────────────────────
+
+class _VtCard extends StatelessWidget {
+  const _VtCard({required this.loading, required this.result});
+
+  final bool      loading;
+  final VtResult? result;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin:     const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      decoration: BoxDecoration(
+        color:        AppColors.panel,
+        borderRadius: BorderRadius.circular(12),
+        border:       Border.all(color: _borderColor.withValues(alpha: 0.4)),
+        boxShadow: [
+          BoxShadow(
+            color:        _borderColor.withValues(alpha: 0.05),
+            blurRadius:   12,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header ─────────────────────────────────────────────────────
+          Container(
+            padding:     const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            decoration:  const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.rim)),
+            ),
+            child: Row(children: [
+              const Text('🛡', style: TextStyle(fontSize: 14)),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'VirusTotal Intelligence',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize:   12,
+                    fontWeight: FontWeight.w700,
+                    color:      AppColors.arc,
+                  ),
+                ),
+              ),
+              Container(
+                padding:    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color:        AppColors.arc.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'VT API v3',
+                  style: TextStyle(
+                    fontSize:   8,
+                    color:      AppColors.arc,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ]),
+          ),
+
+          // ── Body ───────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: loading && result == null
+                ? Row(children: [
+                    SizedBox(
+                      width:  14,
+                      height: 14,
+                      child:  CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color:       AppColors.arc.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Checking VirusTotal engines…',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize:   11,
+                        color:      AppColors.muted,
+                      ),
+                    ),
+                  ])
+                : result == null
+                    ? const Text(
+                        'VirusTotal check unavailable.',
+                        style: TextStyle(fontSize: 11, color: AppColors.muted),
+                      )
+                    : _VtBody(result: result!),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color get _borderColor {
+    if (result == null)          return AppColors.arc;
+    if (result!.malicious > 2)   return AppColors.ember;
+    if (result!.malicious > 0)   return AppColors.amber;
+    if (result!.suspicious > 0)  return AppColors.amber;
+    return AppColors.jade;
+  }
+}
+
+class _VtBody extends StatelessWidget {
+  const _VtBody({required this.result});
+  final VtResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Verdict row ───────────────────────────────────────────────
+        Row(children: [
+          Text(
+            result.verdictEmoji,
+            style: const TextStyle(fontSize: 20),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                result.verdict,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize:   14,
+                  fontWeight: FontWeight.w800,
+                  color:      _verdictColor,
+                ),
+              ),
+              Text(
+                '${result.malicious + result.suspicious} / ${result.totalEngines} engines flagged',
+                style: const TextStyle(fontSize: 10, color: AppColors.muted),
+              ),
+            ],
+          ),
+        ]),
+
+        const SizedBox(height: 12),
+
+        // ── Engine breakdown bar ──────────────────────────────────────
+        if (result.totalEngines > 0) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              height: 6,
+              child: Row(children: [
+                _BarSegment(result.malicious,  result.totalEngines, AppColors.ember),
+                _BarSegment(result.suspicious, result.totalEngines, AppColors.amber),
+                _BarSegment(result.harmless,   result.totalEngines, AppColors.jade),
+                _BarSegment(result.undetected, result.totalEngines, AppColors.rim),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+
+        // ── Engine count chips ────────────────────────────────────────
+        Wrap(
+          spacing:   8,
+          runSpacing: 4,
+          children: [
+            _Chip('${result.malicious} malicious',  AppColors.ember),
+            _Chip('${result.suspicious} suspicious', AppColors.amber),
+            _Chip('${result.harmless} clean',        AppColors.jade),
+            _Chip('${result.undetected} undetected', AppColors.muted),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Color get _verdictColor {
+    if (result.malicious > 2)   return AppColors.ember;
+    if (result.malicious > 0)   return AppColors.amber;
+    if (result.suspicious > 0)  return AppColors.amber;
+    return AppColors.jade;
+  }
+}
+
+class _BarSegment extends StatelessWidget {
+  const _BarSegment(this.count, this.total, this.color);
+  final int   count, total;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (count == 0) return const SizedBox.shrink();
+    return Flexible(
+      flex:  count,
+      child: Container(color: color),
+    );
+    // flex on remaining space fills the bar without needing total
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip(this.label, this.color);
+  final String label;
+  final Color  color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding:    const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color:        color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(4),
+          border:       Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize:   9,
+            color:      color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       );
 }
