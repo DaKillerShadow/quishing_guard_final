@@ -247,8 +247,25 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     full_host   = f"{ext.subdomain}.{ext.domain}.{ext.suffix}".strip(".")
     parsed      = urlparse(decoded_url if "://" in decoded_url else "https://" + decoded_url)
 
+    # BUG-FIX (full): Parse the ORIGINAL (pre-redirect) URL for all host-level checks
+    # that must reflect what the user actually SCANNED, not where they end up.
+    _orig_url       = url if "://" in url else "https://" + url
+    _orig_parsed    = urlparse(_orig_url)
+    _orig_ext       = tldextract.extract(_orig_parsed.netloc or _orig_url)
+    _orig_full_host = (
+        f"{_orig_ext.subdomain}.{_orig_ext.domain}.{_orig_ext.suffix}".strip(".")
+    )
+    _orig_etld1     = (
+        f"{_orig_ext.domain}.{_orig_ext.suffix}"
+        if _orig_ext.domain and _orig_ext.suffix
+        else _orig_ext.domain
+    )
+
     # 1. Global Reputation (The Gatekeeper)
-    is_trusted = is_highly_trusted(etld1)
+    # Conservative AND rule: the domain is only treated as trusted if BOTH
+    # the original scanned URL AND the resolved destination are in the Tranco
+    # Top 100k list. A single untrusted party in the chain means not trusted.
+    is_trusted = is_highly_trusted(_orig_etld1) and is_highly_trusted(etld1)
     checks.append({
         "name":      "reputation",
         "label":     "GLOBAL REPUTATION",
@@ -261,26 +278,35 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     })
 
     # 2. IP Address Literal
+    # Checks TWO hosts in priority order: original scanned URL, then resolved destination.
+    _ip_host_orig = _orig_parsed.hostname or ""
+    _ip_host_res  = parsed.hostname or full_host
+    _detected_ip  = ""
     is_ip = False
-    try:
-        ipaddress.ip_address(full_host)
-        is_ip = True
-    except ValueError:
-        pass
+    for _candidate in (_ip_host_orig, _ip_host_res):
+        if not _candidate:
+            continue
+        try:
+            ipaddress.ip_address(_candidate)
+            is_ip = True
+            _detected_ip = _candidate
+            break
+        except ValueError:
+            pass
     checks.append({
         "name":      "ip_literal",
         "label":     "IP ADDRESS LITERAL",
         "status":    "DANGER" if is_ip else "SAFE",
-        "message":   "Link uses a raw IP address instead of a registered domain name." if is_ip
+        "message":   f"Raw IP address detected ({_detected_ip}). Legitimate sites use registered domain names." if is_ip
                      else "Link uses a proper registered domain name. ✓",
-        "metric":    f"Host: {full_host}" if is_ip else "",
+        "metric":    f"Host: {_detected_ip}" if is_ip else "",
         "score":     25 if is_ip else 0,
         "triggered": is_ip,
     })
 
     # 3. Punycode/Homograph Attack
-    is_puny_encoded  = "xn--" in full_host
-    is_unicode_spoof = not full_host.isascii()
+    is_puny_encoded  = "xn--" in _orig_full_host
+    is_unicode_spoof = not _orig_full_host.isascii()
     is_puny          = is_puny_encoded or is_unicode_spoof
     checks.append({
         "name":      "punycode",
@@ -288,7 +314,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         "status":    "DANGER" if is_puny else "SAFE",
         "message":   "Punycode (xn--) IDN encoding detected — potential homograph brand impersonation." if is_puny
                      else "No Punycode IDN encoding detected. ✓",
-        "metric":    f"Host: {full_host}" if is_puny else "",
+        "metric":    f"Host: {_orig_full_host}" if is_puny else "",
         "score":     30 if is_puny else 0,
         "triggered": is_puny,
     })
@@ -400,7 +426,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     })
 
     # 12. Brand Impersonation in Domain
-    domain_lower    = domain.lower()
+    domain_lower    = _orig_ext.domain.lower()
     brand_in_domain = any(kw in domain_lower for kw in _BRAND_KEYWORDS)
     is_brand_spoof  = brand_in_domain and not is_trusted
     checks.append({
@@ -440,7 +466,8 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     elif blocklisted:
         risk_score = 100
 
-    final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
+    # BUG-FIX-1: Boundary corrected from < 30 to < 15.
+    final_label = "safe" if risk_score < 15 else "warning" if risk_score < 60 else "danger"
 
     # ZERO-TRUST FLOOR: Apply warning floor if completely unknown with no triggers
     if not is_trusted and not allowlisted and non_reputation_triggered == 0:
@@ -451,7 +478,6 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
     top_threat       = max(triggered_checks, key=lambda c: c["score"])["name"] if triggered_checks else "None"
 
     # FIX: Skip AI for allowlisted/blocklisted URLs — verdict is already final.
-    # Calling Gemini for these wastes quota and adds 3–12 s of unnecessary latency.
     if allowlisted or blocklisted:
         ai_text = ""
     else:
@@ -476,4 +502,3 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         ),
         "ai_analysis":        ai_text,
     }
-
