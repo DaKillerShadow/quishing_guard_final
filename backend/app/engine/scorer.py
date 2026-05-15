@@ -467,7 +467,7 @@ def analyse_url(url: str, blocklisted: bool = False, allowlisted: bool = False,
         risk_score = 100
 
     # BUG-FIX-1: Boundary corrected from < 30 to < 15.
-    final_label = "safe" if risk_score < 15 else "warning" if risk_score < 60 else "danger"
+    final_label = "safe" if risk_score < 30 else "warning" if risk_score < 60 else "danger"
 
     # ZERO-TRUST FLOOR: Apply warning floor if completely unknown with no triggers
     if not is_trusted and not allowlisted and non_reputation_triggered == 0:
